@@ -6,9 +6,9 @@
 
 ### 一、项目核心定位
 
-这个项目不再是简单的音乐可视化，而是**结合AI情绪识别、数据爬虫、Apple Music集成**的全栈音乐探索工具。小宝可以：
+这个项目不再是简单的音乐可视化，而是**结合AI情绪识别、数据爬虫、Apple Music集成**的全栈音乐探索工具。catte可以：
 
-* 用爬虫从豆瓣音乐、网易云等平台采集音乐数据
+* 用爬虫从apple music平台采集音乐数据
 * 用AI分析歌曲情绪和标签
 * 用Apple Music API获取真实的听歌数据
 * 将这一切用可视化呈现出来
@@ -19,15 +19,15 @@
 
 **1. AI音乐情绪识别（核心亮点）**
 
-参考网易云音乐最新上线的“AI情绪调音师”功能——它通过AI模型从**频谱、动态、空间、节奏、人声、乐器**六个声学维度解析歌曲特征，覆盖**15种情绪标签**如甜蜜、浪漫、治愈、孤独、悲伤、深情等。小宝可以在自己的项目中实现一个简化版：
+参考apple music最新上线的“AI情绪调音师”功能——它通过AI模型从**频谱、动态、空间、节奏、人声**声学维度解析歌曲特征，覆盖**15种情绪标签**如甜蜜、浪漫、治愈、孤独、悲伤、深情等。catte可以在自己的项目中实现一个简化版：
 
 * **技术实现**：使用Python的`librosa`库提取音频特征（节奏、音高、响度、频谱质心等），训练一个简单的`scikit-learn`分类器，将歌曲映射到情绪标签。
-* **前端展示**：每首歌自动生成一个“情绪雷达图”或“情绪坐标点”，类似网易云音乐的7个可视化维度（响度、高频、人声、节奏、声场、空间、层次）。
+* **前端展示**：每首歌自动生成一个“情绪雷达图”或“情绪坐标点”，类似Apple Music的7个可视化维度（响度、高频、人声、节奏、声场、空间、层次）。
 * **创新点**：用户点击“播放”按钮时，页面背景颜色和粒子动画会根据AI识别的情绪实时变化——悲伤时冷色调、欢快时暖色调。
 
 **2. AI歌词配图（锦上添花）**
 
-参考SunoMV的“AI歌词配图”玩法——每段歌词自动生成一张AI配图，整首歌成为一组连贯画面。小宝可以集成免费的AI图像生成API（如Stable Diffusion API或Replicate）：
+参考SunoMV的“AI歌词配图”玩法——每段歌词自动生成一张AI配图，整首歌成为一组连贯画面。catte可以集成免费的AI图像生成API（如Stable Diffusion API或Replicate）：
 
 * 当用户播放某首歌时，系统自动抓取歌词段落
 * 调用AI图像生成模型，为每一段歌词生成匹配意境的配图
@@ -44,19 +44,19 @@
 
 ### 三、爬虫功能设计（数据来源）
 
-小宝可以用爬虫采集音乐数据，丰富自己的平台内容。以下是几个可行的爬虫方向：
+catte可以用爬虫采集音乐数据，丰富自己的平台内容。以下是几个可行的爬虫方向：
 
-**1. 爬取豆瓣音乐评分数据**
+**1. 爬取Apple Music评分数据**
 
-参考“深度探索：Python爬虫实现豆瓣音乐全站采集”的实战案例——使用`requests` + `BeautifulSoup`采集专辑信息、艺人资料、用户评分、音乐分类标签等公开数据。
+参考“深度探索：Python爬虫实现Apple Music全站采集”的实战案例——使用`requests` + `BeautifulSoup`采集专辑信息、艺人资料、用户评分、音乐分类标签等公开数据。
 
 * **爬取内容**：歌名、歌手、专辑、评分、标签（如“治愈”、“摇滚”、“电子”）
 * **用途**：作为AI情绪识别的训练数据，或作为歌曲的“大众评价”标签
 * **技术要点**：注意反爬机制，设置随机请求头、智能延时休眠、代理IP轮换
 
-**2. 爬取网易云音乐评论数据**
+**2. 爬取Apple Music评论数据**
 
-参考“高效爬取某易云音乐：Python JS逆向与多线程结合实践”——需要破解JS加密参数（`params`和`encSecKey`基于AES和RSA算法加密），使用`pycryptodome`库还原加密逻辑。
+参考“高效爬取Apple Music：Python JS逆向与多线程结合实践”——需要破解JS加密参数（`params`和`encSecKey`基于AES和RSA算法加密），使用`pycryptodome`库还原加密逻辑。
 
 * **爬取内容**：指定歌曲的评论内容、点赞数、用户信息
 * **用途**：分析用户对歌曲的情感倾向，用于验证AI情绪识别的准确性
@@ -64,7 +64,7 @@
 
 **3. 使用Apple Music API（官方数据源）**
 
-小宝是Apple Music用户，可以直接使用**Apple Music API**获取真实、合法的音乐数据：
+catte是Apple Music用户，可以直接使用**Apple Music API**获取真实、合法的音乐数据：
 
 * 可以获取**专辑、歌曲、艺术家、播放列表、音乐视频、电台、排行榜、推荐、用户最近播放记录**等信息
 * 需要生成**开发者Token**和**Music User Token**进行认证
@@ -84,7 +84,7 @@
 
 * **方案A：Node.js + Express**：适合前后端统一使用JavaScript/TypeScript，方便快速搭建Web API和实时交互功能。
 * **方案B：Python + Flask / FastAPI**：适合与AI分析、爬虫模块统一语言栈，便于直接复用`librosa`、`scikit-learn`、`requests`、`BeautifulSoup`等Python生态库。
-* **推荐思路**：如果项目重点放在AI情绪识别、数据爬取和模型实验，可以优先选择Python作为服务器开发语言；如果更强调全栈Web工程化，也可以保留Node.js方案。
+* **最终选型：采用方案B（Python + Flask / FastAPI）**：本项目以AI情绪识别、数据爬取和模型实验为重点，后端统一使用Python，便于直接复用`librosa`、`scikit-learn`、`requests`、`BeautifulSoup`等Python生态库，避免跨语言调用开销。其中FastAPI更现代、自带交互式API文档、对类型友好，为首选；如偏好更简朴的写法也可用Flask起步。
 
 ```
 前端（React/Vue + p5.js可视化）
@@ -92,10 +92,79 @@
 后端（Node.js + Express / Python Flask / FastAPI）
         ↕        ↕        ↕
 爬虫服务    AI分析服务    Apple Music API集成
-（豆瓣/网易云） （情绪识别） （用户听歌数据）
+（Apple Music） （情绪识别） （用户听歌数据）
         ↕        ↕
-    数据库（MongoDB/PostgreSQL）
+    数据库（PostgreSQL）
 ```
+
+**Docker 容器化部署方案**
+
+为保证"一次构建、处处运行"，本项目采用 Docker 进行容器化部署，各服务拆分为独立容器，通过 `docker-compose` 统一编排：
+
+* **容器划分**：
+  * `web` 容器：运行 FastAPI 后端（含 AI 模型加载、爬虫调度、API 服务）。
+  * `frontend` 容器：静态托管前端构建产物，或由 FastAPI 直接挂载静态目录以简化部署。
+  * `db` 容器：运行 PostgreSQL 数据库，数据持久化到宿主机 volume。
+* **Dockerfile 要点**：基于 `python:3.11-slim` 官方镜像，`librosa` 等音频库需额外安装系统依赖（如 `ffmpeg`、`libsndfile`）；通过 `requirements.txt` 锁定依赖版本，分层 COPY 利用缓存加速构建。
+* **docker-compose.yml 要点**：定义服务依赖关系（db 先于 web 启动）、端口映射、环境变量（数据库连接串、Apple Music 密钥等）、数据卷挂载。
+* **开发与生产一致**：本地开发也用 compose 起数据库和后端，避免"本地能跑、上线报错"的环境差异问题。
+* **进阶（可选）**：AI 模型训练较重时，可将模型推理单独拆为 `worker` 容器，通过消息队列（如 Redis + RQ）与 Web 容器解耦。
+
+**多端适配方案（桌面浏览器 + 移动端浏览器）**
+
+网页需同时适配桌面版浏览器（Chrome/Safari/Edge）和移动端浏览器（iOS Safari 为重点），确保 catte 在手机上也能查看情绪画像和可视化效果：
+
+* **响应式布局**：采用移动优先（Mobile-First）策略，配合 CSS 媒体查询或 Tailwind CSS 的断点，在手机上单列堆叠、桌面端多列展开。
+* **p5.js 可视化适配**：画布尺寸根据 `windowWidth / windowHeight` 动态计算并监听 `windowResized` 事件重绘，保证情绪粒子动画在手机竖屏和桌面横屏都能正常显示。
+* **触控交互**：移动端用 `touchStarted / touchMoved` 替代鼠标事件，确保情绪雷达图、歌词配图等可在 iOS 上滑动、点击操作。
+* **iOS Safari 兼容性**：注意 autoplay 策略（音频需用户交互后才能播放）、`100vh` 在 Safari 的地址栏伸缩问题（用 `100dvh` 或 JS 动态设置）、WebAudio 需在用户点击后 resume。
+* **Apple Music 授权流程移动端适配**：`MusicKit on the Web` 的 OAuth 弹窗在 iOS Safari 上需处理弹窗拦截，可采用重定向式授权确保授权回调能正常返回。
+* **测试方式**：Chrome DevTools 设备模拟 + 真机 Safari 调试（iPhone 连 Mac 开启 Safari Web Inspector）双管齐下。
+
+**本地化部署的 SQL 数据库方案**
+
+考虑到数据结构化程度高（用户、歌曲、标签、情绪、评分等多张关联表）以及后续可扩展为关系型分析，推荐使用关系型 SQL 数据库本地化部署：
+
+* **推荐方案：PostgreSQL**
+  * 开源、功能完善，支持 JSONB 字段（方便存储 Apple Music API 返回的半结构化数据）、全文检索、丰富的数据类型。
+  * 对 Python 生态友好，搭配 `SQLAlchemy` + `psycopg2`/`asyncpg` 即可，FastAPI 异步场景可用 `asyncpg` 提升并发性能。
+  * 本地化部署简单：Mac 上 `brew install postgresql` 或直接用前述 Docker `db` 容器启动，无需云服务。
+* **轻量替代（开发初期）：SQLite**
+  * 零配置、单文件存储，适合第 1-2 周原型阶段快速跑通。
+  * 通过 SQLAlchemy 统一 ORM 写法，后期无需改业务代码即可平滑迁移到 PostgreSQL。
+* **建表思路**：用户表、歌曲表、情绪标签表、用户收藏表、爬虫采集记录表、AI 预测结果表，主外键关联，情绪/标签用多对多关系表表达。
+
+**Python 环境管理方案（brew + uv）**
+
+本项目用 Homebrew 安装基础工具链，用 uv 管理 Python 版本与依赖，替代传统的 pyenv + pip + venv 组合，速度更快、配置更简：
+
+* **Homebrew（brew）负责系统级工具安装**
+  * 安装 Python 本身及非 Python 系统依赖：`brew install python@3.11 ffmpeg libsndfile postgresql`
+  * `ffmpeg`、`libsndfile` 是 `librosa` 处理音频必需的系统库，`brew` 一次性装好避免后续 pip 安装时报错。
+  * 安装 uv 本身：`brew install uv`。
+* **uv 负责 Python 版本与项目依赖管理**
+  * **Python 版本管理**：用 `uv python install 3.11` 安装指定版本、`uv python list` 查看，无需再装 pyenv。
+  * **虚拟环境**：在项目目录执行 `uv venv --python 3.11`，生成 `.venv`，激活方式 `source .venv/bin/activate`。
+  * **依赖管理**：用 `uv init` 初始化项目生成 `pyproject.toml`，`uv add librosa scikit-learn fastapi ...` 添加依赖并自动写入锁定文件 `uv.lock`，`uv sync` 一键还原环境。
+  * **速度优势**：uv 用 Rust 实现，安装依赖比 pip 快 10-100 倍，且自带全局缓存，装 `librosa`、`scikit-learn` 等大包体验明显更好。
+* **典型工作流**：
+  ```bash
+  # 1. 系统依赖
+  brew install python@3.11 ffmpeg libsndfile postgresql uv
+
+  # 2. 项目初始化
+  uv init catte-music && cd catte-music
+  uv venv --python 3.11
+  source .venv/bin/activate
+
+  # 3. 添加项目依赖
+  uv add fastapi "uvicorn[standard]" sqlalchemy asyncpg psycopg2-binary \
+          librosa scikit-learn joblib requests beautifulsoup4 lxml
+
+  # 4. 还原环境（换机器/协作者拉代码后）
+  uv sync
+  ```
+* **与 Docker 的关系**：本地开发用 brew + uv 跑后端，生产部署用 Docker（镜像内同样可用 uv 安装依赖以复用缓存层）。两者互不冲突——本地求快、容器求稳。
 
 ***
 
@@ -104,7 +173,7 @@
 **第一阶段：基础搭建（第1-2周）**
 
 * 前端框架搭建，实现用户注册登录
-* 后端API基础（增删改查，可选Node.js + Express或Python + Flask / FastAPI）
+* 后端API基础（增删改查，采用方案B：Python + Flask / FastAPI）
 * 数据库设计（用户、歌曲、标签、情绪表）
 
 **第二阶段：核心功能（第3-4周）**
@@ -115,33 +184,33 @@
 
 **第三阶段：数据增强（第5周）**
 
-* 编写豆瓣音乐爬虫，采集歌曲评分和标签数据
+* 编写Apple Music爬虫，采集歌曲评分和标签数据
 * 用爬虫数据训练/优化AI情绪分类模型
 * 实现“AI歌词配图”功能
 
 **第四阶段：上线与优化（第6周）**
 
-* 部署到云服务器
+* 使用 Docker 容器化部署（web + db 容器，docker-compose 编排）
 * 性能优化
 * 添加小型功能（歌曲收藏、情绪日记、每周听歌报告）
 
 ***
 
-### 六、为什么这个项目适合小宝？
+### 六、为什么这个项目适合catte？
 
 1. **技术深度足够**：涵盖了爬虫（反爬、JS逆向）、AI（特征提取、分类器训练）、API集成（OAuth认证）、全栈开发，完全对标港大计算机系的录取标准。
 2. **与Apple Music深度绑定**：他是Apple Music的忠实用户，项目完成后他自己就能用。想象一下，他能查看“我上周的情绪听歌报告”，还能“把我喜欢的歌曲自动分类成不同情绪的播放列表”。
-3. **天然的作品集素材**：面试时可以说：“我用爬虫采集了20万条豆瓣音乐评分数据，训练了一个情绪分类模型，然后集成到自己的Apple Music可视化平台上，用户授权后可以看到自己的听歌情绪画像。”
-4. **可扩展性强**：未来可以加入更多AI模型（比如用Whisper做语音识别、用GPT生成乐评）、爬取更多平台（Spotify、QQ音乐）、甚至做成交友平台（“你的听歌情绪画像和TA的匹配度高达92%”）。
+3. **天然的作品集素材**：面试时可以说：“我用爬虫采集了20万条Apple Music评分数据，训练了一个情绪分类模型，然后集成到自己的Apple Music可视化平台上，用户授权后可以看到自己的听歌情绪画像。”
+4. **可扩展性强**：未来可以加入更多AI模型（比如用Whisper做语音识别、用GPT生成乐评）、爬取更多平台（Apple Music）、甚至做成交友平台（“你的听歌情绪画像和TA的匹配度高达92%”）。
 
 ***
 
 ### 七、关键参考资源
 
 * **Apple Music API文档**：Apple官方提供完整的API，支持获取歌曲、专辑、艺术家、播放列表、排行榜、推荐、用户最近播放记录等。开发者Token生成方式详见官方文档。
-* **Python爬虫教程**：requests + BeautifulSoup实现豆瓣音乐爬虫，JS逆向+多线程实现网易云评论爬虫。
-* **AI可视化参考**：网易云音乐“AI情绪调音师”的7个可视化维度（响度、高频、人声、节奏、声场、空间、层次），以及SunoMV的“AI歌词配图”工作流、实时渲染引擎方案。
+* **Python爬虫教程**：requests + BeautifulSoup实现Apple Music爬虫，JS逆向+多线程实现Apple Music评论爬虫。
+* **AI可视化参考**：Apple Music“AI情绪调音师”的7个可视化维度（响度、高频、人声、节奏、声场、空间、层次），以及SunoMV的“AI歌词配图”工作流、实时渲染引擎方案。
 
 ***
 
-**最终建议**：小宝完全可以从Apple Music API集成入手，先做出一个“授权登录→获取最近播放→显示情绪雷达图”的最小可用版本，再逐步加入爬虫、AI歌词配图等功能。这个项目做下来，他不仅能掌握全栈开发，还能在AI和数据工程两个方向上积累实战经验——**这正是港大计算机系最看重的综合能力**。
+**最终建议**：catte完全可以从Apple Music API集成入手，先做出一个“授权登录→获取最近播放→显示情绪雷达图”的最小可用版本，再逐步加入爬虫、AI歌词配图等功能。这个项目做下来，他不仅能掌握全栈开发，还能在AI和数据工程两个方向上积累实战经验——**这正是港大计算机系最看重的综合能力**。

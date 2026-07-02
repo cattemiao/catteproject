@@ -13,6 +13,7 @@
 │                    表现层 Presentation                       │
 │   桌面浏览器 / 移动端浏览器 (iOS Safari)                      │
 │   React/Vue + p5.js 可视化 + Tailwind CSS 响应式             │
+│   炫酷现代年轻风格：深色霓虹 + 毛玻璃发光 + 粒子动态           │
 │   MusicKit on the Web (Apple Music 授权与播放)               │
 └──────────────────────────┬──────────────────────────────────┘
                            │ RESTful / JSON
@@ -303,6 +304,27 @@ frontend/src/
 └── api/
     └── client.ts           # axios 封装后端 API
 ```
+
+### 界面风格设计（炫酷现代年轻风）
+
+整体界面遵循 [`requirement.md`](./requirement.md) 中"炫酷的现代年轻风格"定位，设计规范如下：
+
+| 维度 | 规范 | 实现方式 |
+| --- | --- | --- |
+| 主色调 | 深色系主基调（深空黑 `#0a0a12` / 午夜蓝 `#0f1729`） | Tailwind `bg` 自定义色 / CSS 变量 |
+| 点缀色 | 霓虹紫 `#a855f7`、电光蓝 `#3b82f6`、赛博粉 `#ec4899`、辉光青 `#22d3ee` | Tailwind 扩展调色板 |
+| 质感 | 毛玻璃 Glassmorphism：半透明 + `backdrop-blur` + 细边框 | Tailwind `backdrop-blur` + `bg-white/5` + `border-white/10` |
+| 发光 | 关键元素外发光 | `box-shadow` / `drop-shadow` + 颜色匹配点缀色 |
+| 动态背景 | p5.js 粒子随情绪变色流动 | `ParticleBg.tsx` 组件驱动 |
+| 渐变流光 | 标题/按钮/雷达描边渐变 | Tailwind `bg-gradient-to-*` + CSS keyframes |
+| 字体 | 标题 HarmonyOS Sans / Montserrat 粗体；正文清爽无衬线 | `@font-face` / Google Fonts |
+| 图标 | 线性霓虹风 | Phosphor Icons / Lucide |
+| 微交互 | 悬停发光放大、入场弹性、点击波纹、切换模糊渐显 | Tailwind `transition` + Framer Motion |
+| 可视化 | 雷达图霓虹描边+渐变填充+发光节点；报告用渐变环形/流光折线 | p5.js / ECharts 自定义主题 |
+
+- **深色主题优先**：全站默认深色，天然适配 OLED 省电与夜店氛围；可预留浅色主题切换。
+- **情绪联动**：粒子背景与雷达图配色由后端返回的情绪主色调驱动，实现"情绪 → 视觉"的实时映射。
+- **移动端降级**：炫酷效果在移动端生效，但降低粒子密度（如桌面 150 粒子 / 移动端 60 粒子）与模糊半径以保帧率。
 
 ### 多端适配要点
 - 响应式：Tailwind 断点 `sm/md/lg`，移动端单列、桌面多列。

@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+dist/
+build/
+
+# Environment
+.env
+.env.local
+
+# Database
+*.db
+*.sqlite3
+
+# Data files (爬取数据/模型/音频样本，不入库，但保留目录结构)
+data/raw/*
+!data/raw/.gitkeep
+data/models/*
+!data/models/.gitkeep
+data/audio_samples/*
+!data/audio_samples/.gitkeep
+
+# Apple Music 私钥
+*.p8
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+
+# OS
+.DS_Store

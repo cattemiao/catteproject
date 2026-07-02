@@ -1,0 +1,13 @@
+.venv
+__pycache__
+*.pyc
+.git
+.env
+*.db
+*.p8
+frontend/node_modules
+frontend/dist
+data/raw
+data/models/*.pkl
+data/audio_samples
+.DS_Store

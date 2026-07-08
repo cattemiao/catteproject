@@ -1,18 +1,71 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Music, TrendingUp, Sparkles } from 'lucide-react'
-import { songsApi, appleMusicApi, recommendApi } from '../api/client'
+import { songsApi, appleMusicApi, recommendApi, authApi } from '../api/client'
 import ParticleBg from '../components/ParticleBg'
 import type { SongOut } from '../types'
+
+// MusicKit JS 全局类型
+declare global {
+  interface Window {
+    MusicKit: any
+  }
+}
 
 export default function Home() {
   const [songs, setSongs] = useState<SongOut[]>([])
   const [recs, setRecs] = useState<SongOut[]>([])
+  const [syncing, setSyncing] = useState(false)
+  const [syncMsg, setSyncMsg] = useState('')
 
   useEffect(() => {
     songsApi.list({ size: 12 }).then(({ data }) => setSongs(data.items)).catch(() => {})
     recommendApi.get(6).then(({ data }) => setRecs(data)).catch(() => {})
   }, [])
+
+  const syncAppleMusic = async () => {
+    setSyncing(true)
+    setSyncMsg('')
+    try {
+      // 1. 获取 Developer Token
+      const { data: config } = await authApi.appleMusicConfig()
+
+      // 2. 配置 MusicKit JS
+      const MusicKit = window.MusicKit
+      if (!MusicKit) {
+        setSyncMsg('MusicKit JS 未加载，请刷新页面重试')
+        return
+      }
+      await MusicKit.configure({
+        developerToken: config.developer_token,
+        app: { name: config.app_name, build: config.build },
+      })
+
+      // 3. 弹窗授权，获取 Music User Token
+      const music = MusicKit.getInstance()
+      const musicUserToken = await music.authorize()
+      if (!musicUserToken) {
+        setSyncMsg('授权已取消')
+        return
+      }
+
+      // 4. 回传 Music User Token 给后端存储
+      await authApi.appleMusicCallback(musicUserToken)
+
+      // 5. 同步最近播放记录（Apple 限制 limit ≤ 10）
+      await appleMusicApi.recent(10)
+      setSyncMsg('同步成功！')
+      setTimeout(() => location.reload(), 800)
+    } catch (err: unknown) {
+      const msg =
+        (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail ||
+        (err as Error)?.message ||
+        '同步失败，请重试'
+      setSyncMsg(msg)
+    } finally {
+      setSyncing(false)
+    }
+  }
 
   return (
     <div className="relative">
@@ -27,12 +80,18 @@ export default function Home() {
           用 AI 解析每首歌的情绪，用粒子与雷达图可视化呈现你的听歌画像
         </p>
         <button
-          onClick={() => appleMusicApi.recent(20).then(() => location.reload())}
-          className="btn-neon mt-6"
+          onClick={syncAppleMusic}
+          disabled={syncing}
+          className="btn-neon mt-6 disabled:opacity-50"
         >
           <Sparkles className="w-4 h-4" />
-          同步 Apple Music 听歌记录
+          {syncing ? '同步中...' : '同步 Apple Music 听歌记录'}
         </button>
+        {syncMsg && (
+          <p className={`mt-3 text-sm ${syncMsg.includes('成功') ? 'text-neon-cyan' : 'text-red-400'}`}>
+            {syncMsg}
+          </p>
+        )}
       </section>
 
       {/* 推荐区 */}

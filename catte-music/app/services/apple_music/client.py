@@ -47,9 +47,12 @@ class AppleMusicClient:
             "GET", f"/v1/catalog/{self._storefront}/search", params=params
         )
 
-    async def get_recent_played(self, limit: int = 50) -> dict:
-        """获取用户最近播放记录（需 Music User Token）。"""
-        params = {"limit": limit}
+    async def get_recent_played(self, limit: int = 10) -> dict:
+        """获取用户最近播放记录（需 Music User Token）。
+
+        Apple 限制 limit ≤ 10。
+        """
+        params = {"limit": min(limit, 10)}
         return await self._request(
             "GET", "/v1/me/recent/played", params=params
         )

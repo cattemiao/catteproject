@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import apple_music, auth, emotions, recommend, songs
+from app.api import analyze, apple_music, auth, emotions, recommend, songs
 from app.config import settings
 from app.database import init_db
 
@@ -13,6 +13,10 @@ from app.database import init_db
 async def lifespan(app: FastAPI):
     # 启动时自动建表
     await init_db()
+    # 初始化情绪模板数据
+    from app.services.ai.seed_emotions import seed
+
+    await seed()
     yield
 
 
@@ -45,6 +49,7 @@ def health():
 # 挂载路由
 app.include_router(auth.router)
 app.include_router(songs.router)
+app.include_router(analyze.router)
 app.include_router(emotions.router)
 app.include_router(recommend.router)
 app.include_router(apple_music.router)

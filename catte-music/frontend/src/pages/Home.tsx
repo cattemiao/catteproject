@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Music, TrendingUp, Sparkles } from 'lucide-react'
+import { Disc, Music, TrendingUp, Sparkles } from 'lucide-react'
 import { songsApi, appleMusicApi, recommendApi, authApi } from '../api/client'
 import ParticleBg from '../components/ParticleBg'
 import type { SongOut } from '../types'
@@ -126,12 +126,19 @@ export default function Home() {
 }
 
 function SongCard({ song }: { song: SongOut }) {
+  const isAlbum = song.type === 'albums'
   return (
     <Link to={`/song/${song.id}`} className="card group cursor-pointer">
       <div className="aspect-square rounded-xl bg-gradient-to-br from-neon-purple/30 to-neon-blue/20 mb-3 flex items-center justify-center group-hover:shadow-[0_0_25px_rgba(168,85,247,0.3)] transition-all">
-        <Music className="w-10 h-10 text-white/40 group-hover:scale-110 transition-transform" />
+        {isAlbum ? (
+          <Disc className="w-10 h-10 text-white/40 group-hover:scale-110 transition-transform" />
+        ) : (
+          <Music className="w-10 h-10 text-white/40 group-hover:scale-110 transition-transform" />
+        )}
       </div>
-      <h3 className="font-medium text-sm truncate group-hover:text-neon-cyan transition-colors">
+      <h3 className="font-medium text-sm truncate group-hover:text-neon-cyan transition-colors flex items-center gap-1">
+        {isAlbum && <Disc className="w-3.5 h-3.5 text-neon-purple/60 flex-shrink-0" />}
+        {!isAlbum && <Music className="w-3.5 h-3.5 text-neon-cyan/60 flex-shrink-0" />}
         {song.title}
       </h3>
       <p className="text-xs text-slate-500 truncate">{song.artist}</p>

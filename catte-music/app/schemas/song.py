@@ -9,6 +9,10 @@ class SongOut(BaseModel):
     artist: str
     album: str | None = None
     duration_ms: int | None = None
+    preview_url: str | None = None
+    raw_meta: dict | None = None
+    type: str = "song"
+    artist_bio: str | None = None
 
     model_config = {"from_attributes": True}
 

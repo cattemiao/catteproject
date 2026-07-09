@@ -78,7 +78,7 @@ export default function ParticleBg({ color = '#a855f7', count }: ParticleBgProps
       }
 
       p.windowResized = () => {
-        p.resizeContainer(container.offsetWidth, container.offsetHeight)
+        p.resizeCanvas(container.offsetWidth, container.offsetHeight)
       }
     }
 

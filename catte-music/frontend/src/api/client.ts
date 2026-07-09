@@ -1,11 +1,8 @@
 import axios from 'axios'
+import type { PredictionData, RadarData, ReviewData, SongListOut, SongOut, PreviewData } from '../types'
 
-const client = axios.create({
-  baseURL: '/api',
-  timeout: 15000,
-})
+const client = axios.create({ baseURL: '/api' })
 
-// 请求拦截器：自动携带 JWT
 client.interceptors.request.use((config) => {
   const token = localStorage.getItem('catte_token')
   if (token) {
@@ -14,11 +11,10 @@ client.interceptors.request.use((config) => {
   return config
 })
 
-// 响应拦截器：401 跳转登录
 client.interceptors.response.use(
-  (response) => response,
+  (resp) => resp,
   (error) => {
-    if (error.response?.status === 401) {
+    if (error?.response?.status === 401) {
       localStorage.removeItem('catte_token')
       window.location.href = '/login'
     }
@@ -26,45 +22,44 @@ client.interceptors.response.use(
   },
 )
 
-export default client
-
-// —— API 方法封装 ——
-
 export const authApi = {
   register: (username: string, password: string) =>
     client.post('/auth/register', { username, password }),
   login: (username: string, password: string) =>
-    client.post('/auth/login', { username, password }),
+    client.post<{ access_token: string }>('/auth/login', { username, password }),
   me: () => client.get('/auth/me'),
-  appleMusicConfig: () => client.get('/auth/apple-music/config'),
-  appleMusicCallback: (token: string) =>
-    client.post('/auth/apple-music/callback', { music_user_token: token }),
+  appleMusicConfig: () =>
+    client.get<{ developer_token: string; app_name: string; build: string }>('/auth/apple-music/config'),
+  appleMusicCallback: (musicUserToken: string) =>
+    client.post('/auth/apple-music/callback', { music_user_token: musicUserToken }),
 }
 
 export const songsApi = {
   list: (params?: { q?: string; page?: number; size?: number }) =>
-    client.get('/songs', { params }),
-  get: (id: number) => client.get(`/songs/${id}`),
+    client.get<SongListOut>('/songs', { params }),
+  get: (id: number) => client.get<SongOut>(`/songs/${id}`),
   favorite: (id: number) => client.post(`/songs/${id}/favorite`),
-  unfavorite: (id: number) => client.delete(`/songs/${id}/favorite`),
+  getPreview: (id: number) => client.get<PreviewData>(`/songs/${id}/preview`),
+  getReview: (id: number) => client.get<ReviewData>(`/songs/${id}/review`),
+  getAlbumTracks: (songId: number) =>
+    client.get(`/songs/${songId}/album-tracks`),
 }
 
 export const emotionApi = {
   list: () => client.get('/emotions'),
-  getSongEmotion: (songId: number) => client.get(`/songs/${songId}/emotion`),
-  getRadar: (songId: number) => client.get(`/songs/${songId}/radar`),
-}
-
-export const recommendApi = {
-  get: (limit?: number) => client.get('/recommend', { params: { limit } }),
+  getSongEmotion: (songId: number) => client.get<PredictionData>(`/songs/${songId}/emotion`),
+  getRadar: (songId: number) => client.get<RadarData>(`/songs/${songId}/radar`),
+  analyze: (songId: number) => client.post<PredictionData>(`/songs/${songId}/analyze`),
 }
 
 export const appleMusicApi = {
-  recent: (limit?: number) =>
-    client.get('/apple-music/recent', { params: { limit } }),
-  heavyRotation: () => client.get('/apple-music/heavy-rotation'),
-  rate: (songAppleId: string, rating: number) =>
-    client.post(`/apple-music/rating/${songAppleId}`, null, {
-      params: { rating },
-    }),
+  recent: (limit = 10) => client.get('/apple-music/recent', { params: { limit } }),
+  heavyRotation: (limit = 10) => client.get('/apple-music/heavy-rotation', { params: { limit } }),
+  search: (q: string, limit = 10) => client.get('/apple-music/search', { params: { q, limit } }),
 }
+
+export const recommendApi = {
+  get: (limit = 6) => client.get('/recommend', { params: { limit } }),
+}
+
+export default client

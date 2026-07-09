@@ -30,6 +30,8 @@ class Song(Base):
     album: Mapped[str | None] = mapped_column(String(256), nullable=True)
     duration_ms: Mapped[int | None] = mapped_column(nullable=True)
     raw_meta: Mapped[dict | None] = mapped_column(JSONType, nullable=True)
+    type: Mapped[str] = mapped_column(String(16), default="song")  # song/album
+    artist_bio: Mapped[str | None] = mapped_column(String(512), nullable=True)
 
     emotions: Mapped[list["SongEmotion"]] = relationship(back_populates="song")
     tags: Mapped[list["SongTag"]] = relationship(back_populates="song")

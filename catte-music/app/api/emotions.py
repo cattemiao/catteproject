@@ -1,7 +1,8 @@
-"""情绪路由：查询情绪、雷达图数据、触发 AI 分析。"""
+"""情绪路由。"""
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import joinedload
 
 from app.database import get_db
 from app.models.prediction import AiPrediction
@@ -14,61 +15,71 @@ router = APIRouter(prefix="/api", tags=["情绪"])
 
 @router.get("/emotions", response_model=list[EmotionOut])
 async def list_emotions(db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(Emotion).order_by(Emotion.id))
+    result = await db.execute(select(Emotion))
     return [EmotionOut.model_validate(e) for e in result.scalars().all()]
 
 
 @router.get("/songs/{song_id}/emotion", response_model=PredictionOut)
 async def get_song_emotion(song_id: int, db: AsyncSession = Depends(get_db)):
-    """获取歌曲的情绪预测结果。"""
-    pred = await db.execute(
-        select(AiPrediction, Emotion.name, Emotion.color)
-        .join(Emotion, Emotion.id == AiPrediction.emotion_id)
+    """返回最近一次 AI 预测的情绪。"""
+    result = await db.execute(
+        select(AiPrediction)
         .where(AiPrediction.song_id == song_id)
-        .order_by(AiPrediction.predicted_at.desc())
+        .options(joinedload(AiPrediction.emotion_rel))
+        .order_by(AiPrediction.id.desc())
         .limit(1)
     )
-    row = pred.first()
-    if not row:
-        raise HTTPException(status_code=404, detail="该歌曲暂无情绪分析结果")
-    _, emotion_name, color = row
+    pred = result.scalar_one_or_none()
+    if not pred:
+        return PredictionOut(song_id=song_id, emotion="未知", color="#a855f7", confidence=0.0)
     return PredictionOut(
         song_id=song_id,
-        emotion=emotion_name,
-        color=color,
-        confidence=row[0].confidence,
+        emotion=pred.emotion_rel.name,
+        color=pred.emotion_rel.color,
+        confidence=pred.confidence,
     )
 
 
 @router.get("/songs/{song_id}/radar", response_model=RadarOut)
 async def get_song_radar(song_id: int, db: AsyncSession = Depends(get_db)):
-    """获取歌曲 7 维情绪雷达图数据。"""
-    # 查歌曲 + 情绪 + 维度
+    """返回情绪雷达图 7 维数据 + 颜色。"""
     result = await db.execute(
-        select(Song, Emotion.name, Emotion.color, EmotionDimension)
-        .join(SongEmotion, SongEmotion.song_id == Song.id)
-        .join(Emotion, Emotion.id == SongEmotion.emotion_id)
-        .join(EmotionDimension, EmotionDimension.emotion_id == Emotion.id)
-        .where(Song.id == song_id)
+        select(AiPrediction)
+        .where(AiPrediction.song_id == song_id)
+        .options(joinedload(AiPrediction.emotion_rel).joinedload(Emotion.dimensions))
+        .order_by(AiPrediction.id.desc())
         .limit(1)
     )
-    row = result.first()
-    if not row:
-        raise HTTPException(status_code=404, detail="该歌曲暂无雷达图数据")
+    pred = result.scalar_one_or_none()
+    song_result = await db.execute(select(Song).where(Song.id == song_id))
+    song = song_result.scalar_one_or_none()
 
-    song, emotion_name, color, dim = row
+    if not pred or not pred.emotion_rel or not pred.emotion_rel.dimensions:
+        # 没有维度数据 → 返回默认中性值
+        return RadarOut(
+            song_id=song_id,
+            title=song.title if song else "未知",
+            emotion="未知",
+            color="#a855f7",
+            dimensions=RadarDimension(
+                loudness=50, high_freq=50, rhythm=50,
+                soundstage=50, layering=50, soothing=50, prosody=50,
+            ),
+        )
+
+    dim = pred.emotion_rel.dimensions
     return RadarOut(
-        song_id=song.id,
-        title=song.title,
-        emotion=emotion_name,
-        color=color,
+        song_id=song_id,
+        title=song.title if song else "未知",
+        emotion=pred.emotion_rel.name,
+        color=pred.emotion_rel.color,
         dimensions=RadarDimension(
             loudness=dim.loudness,
             high_freq=dim.high_freq,
-            vocal=dim.vocal,
             rhythm=dim.rhythm,
             soundstage=dim.soundstage,
-            space=dim.space,
             layering=dim.layering,
+            soothing=dim.soothing,
+            prosody=dim.prosody,
         ),
     )

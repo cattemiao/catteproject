@@ -25,3 +25,4 @@ class AiPrediction(Base):
     )
 
     song: Mapped["Song"] = relationship(back_populates="predictions")  # noqa: F821
+    emotion_rel: Mapped["Emotion"] = relationship("Emotion")  # noqa: F821

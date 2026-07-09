@@ -32,7 +32,7 @@ class Emotion(Base):
 
 
 class EmotionDimension(Base):
-    """情绪的 7 维可视化数据（响度、高频、人声、节奏、声场、空间、层次）。"""
+    """情绪的 7 维可视化数据（响度、高频、节奏、声场、层次、舒缓、韵律）。"""
 
     __tablename__ = "emotion_dimensions"
 
@@ -40,11 +40,11 @@ class EmotionDimension(Base):
     emotion_id: Mapped[int] = mapped_column(ForeignKey("emotions.id"), index=True)
     loudness: Mapped[float] = mapped_column(default=0.0)
     high_freq: Mapped[float] = mapped_column(default=0.0)
-    vocal: Mapped[float] = mapped_column(default=0.0)
     rhythm: Mapped[float] = mapped_column(default=0.0)
     soundstage: Mapped[float] = mapped_column(default=0.0)
-    space: Mapped[float] = mapped_column(default=0.0)
     layering: Mapped[float] = mapped_column(default=0.0)
+    soothing: Mapped[float] = mapped_column(default=0.0)
+    prosody: Mapped[float] = mapped_column(default=0.0)
 
     emotion: Mapped[Emotion] = relationship(back_populates="dimensions")
 

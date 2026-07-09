@@ -3,6 +3,7 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user
+from app.api.songs import _song_to_out
 from app.database import get_db
 from app.models.user import User
 from app.schemas.song import SongOut
@@ -18,4 +19,4 @@ async def recommend(
     db: AsyncSession = Depends(get_db),
 ):
     songs = await recommend_by_emotion(db, user.id, limit=limit)
-    return [SongOut.model_validate(s) for s in songs]
+    return [_song_to_out(s) for s in songs]

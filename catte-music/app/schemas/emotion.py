@@ -13,11 +13,11 @@ class EmotionOut(BaseModel):
 class RadarDimension(BaseModel):
     loudness: float
     high_freq: float
-    vocal: float
     rhythm: float
     soundstage: float
-    space: float
     layering: float
+    soothing: float
+    prosody: float
 
 
 class RadarOut(BaseModel):

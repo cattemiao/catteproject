@@ -1,0 +1,168 @@
+"""AI 情绪分析路由。"""
+from __future__ import annotations
+
+import logging
+import tempfile
+from pathlib import Path
+
+import httpx
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.database import get_db
+from app.models.prediction import AiPrediction
+from app.models.song import Song, SongEmotion
+from app.models.user import Emotion
+from app.schemas.emotion import PredictionOut
+from app.services.apple_music.auth import API_BASE, get_developer_token
+
+router = APIRouter(prefix="/api", tags=["AI 分析"])
+
+logger = logging.getLogger(__name__)
+STORE = "us"
+
+
+async def _search_preview(title: str, artist: str, limit: int = 3) -> str | None:
+    """在 Apple Music catalog 搜索歌曲并返回第一个预览 URL。"""
+    dev_token = get_developer_token()
+    params = {"term": f"{title} {artist}", "limit": limit, "types": "songs"}
+    headers = {"Authorization": f"Bearer {dev_token}"}
+    async with httpx.AsyncClient(timeout=15.0) as cli:
+        resp = await cli.get(
+            f"{API_BASE}/v1/catalog/{STORE}/search",
+            params=params, headers=headers,
+        )
+        resp.raise_for_status()
+    data = resp.json()
+    songs = data.get("results", {}).get("songs", {}).get("data", [])
+    if not songs:
+        return None
+    for s in songs:
+        if artist.lower() in s["attributes"]["artistName"].lower():
+            previews = s["attributes"].get("previews", [])
+            if previews:
+                return previews[0]["url"]
+    for s in songs:
+        previews = s["attributes"].get("previews", [])
+        if previews:
+            return previews[0]["url"]
+    return None
+
+
+async def _download_preview(url: str, dest: Path) -> None:
+    async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as cli:
+        resp = await cli.get(url)
+        resp.raise_for_status()
+        dest.write_bytes(resp.content)
+    logger.info("预览音频已下载: %d bytes -> %s", len(resp.content), dest)
+
+
+def _classify_by_profile(
+    features: "np.ndarray",  # noqa: F821
+) -> tuple[str, float]:
+    """基于 7 维情绪模板的最近邻分类器。
+
+    特征 17 维 → 7 维映射：
+    loudness, high_freq, rhythm, soundstage, layering, soothing, prosody
+    """
+    import numpy as np
+    from app.services.ai.seed_emotions import EMOTION_PROFILES
+
+    tempo, rmse, centroid, zcr = features[0], features[1], features[2], features[3]
+    mfcc = features[4:17]
+
+    loudness = min(100, max(0, rmse * 1000))
+    high_freq = min(100, max(0, (centroid / 5000) * 60 + float(np.mean(mfcc[:4])) * 5))
+    rhythm = min(100, max(0, tempo * 0.8))
+    soundstage = min(100, max(0, 50 + float(np.std(mfcc[4:10])) * 3))
+    layering = min(100, max(0, 40 + float(np.std(mfcc)) * 5))
+    # 舒缓：反比于响度和高频能量
+    soothing = min(100, max(0, 100 - rmse * 800 - (centroid / 5000) * 30))
+    # 韵律丰富度：节奏变化 + MFCC 动态范围
+    prosody = min(100, max(0, 30 + float(np.std(mfcc[2:8])) * 4 + (zcr * 80)))
+
+    audio_dim = np.array([loudness, high_freq, rhythm, soundstage, layering, soothing, prosody])
+
+    best_emotion = "治愈"
+    best_dist = float("inf")
+    for name, _, dims in EMOTION_PROFILES:
+        template = np.array([
+            dims["loudness"], dims["high_freq"], dims["rhythm"],
+            dims["soundstage"], dims["layering"], dims["soothing"], dims["prosody"],
+        ])
+        dist = np.linalg.norm(audio_dim - template)
+        if dist < best_dist:
+            best_dist = dist
+            best_emotion = name
+
+    confidence = max(0.0, min(1.0, 1.0 - best_dist / 150.0))
+    return best_emotion, confidence
+
+
+@router.post("/songs/{song_id}/analyze", response_model=PredictionOut)
+async def analyze_song(song_id: int, db: AsyncSession = Depends(get_db)):
+    """对歌曲进行 AI 情绪分析。"""
+    from app.services.ai.feature import extract_features
+
+    result = await db.execute(select(Song).where(Song.id == song_id))
+    song = result.scalar_one_or_none()
+    if not song:
+        raise HTTPException(status_code=404, detail="歌曲不存在")
+
+    try:
+        preview_url = await _search_preview(song.title, song.artist)
+    except httpx.HTTPError:
+        raise HTTPException(status_code=502, detail="Apple Music 搜索失败，请稍后重试")
+
+    if not preview_url:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Apple Music 中未找到「{song.title}」的预览音频，无法分析",
+        )
+
+    with tempfile.NamedTemporaryFile(suffix=".m4a", delete=False) as tmp:
+        tmp_path = Path(tmp.name)
+
+    try:
+        await _download_preview(preview_url, tmp_path)
+        features = extract_features(tmp_path)
+    except httpx.HTTPError as e:
+        raise HTTPException(status_code=502, detail=f"下载预览音频失败: {e}")
+    except Exception as e:
+        logger.exception("特征提取失败")
+        raise HTTPException(status_code=500, detail=f"特征提取失败: {e}")
+    finally:
+        if tmp_path.exists():
+            tmp_path.unlink()
+
+    emotion_name, confidence = _classify_by_profile(features)
+
+    emotion_result = await db.execute(
+        select(Emotion).where(Emotion.name == emotion_name)
+    )
+    emotion = emotion_result.scalar_one()
+    color = emotion.color
+
+    feature_dict = {str(i): float(features[i]) for i in range(len(features))}
+    db.add(AiPrediction(
+        song_id=song.id, emotion_id=emotion.id,
+        confidence=confidence, feature_vector=feature_dict,
+        model_version="rule-based-v0.2",
+    ))
+
+    existing = await db.execute(
+        select(SongEmotion).where(
+            SongEmotion.song_id == song.id,
+            SongEmotion.emotion_id == emotion.id,
+        )
+    )
+    if not existing.scalar_one_or_none():
+        db.add(SongEmotion(
+            song_id=song.id, emotion_id=emotion.id, confidence=confidence,
+        ))
+
+    await db.commit()
+    logger.info("歌曲 #%d (%s) 分析完成: %s (%.2f%%)", song.id, song.title, emotion_name, confidence * 100)
+
+    return PredictionOut(song_id=song.id, emotion=emotion_name, color=color, confidence=confidence)

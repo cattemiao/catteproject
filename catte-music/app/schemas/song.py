@@ -13,6 +13,7 @@ class SongOut(BaseModel):
     raw_meta: dict | None = None
     type: str = "song"
     artist_bio: str | None = None
+    artwork_url: str | None = None
 
     model_config = {"from_attributes": True}
 

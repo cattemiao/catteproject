@@ -268,13 +268,19 @@ export default function SongDetail() {
         <div className="text-center lg:text-left">
           {/* 封面 */}
           <div
-            className="aspect-square max-w-sm mx-auto rounded-2xl mb-6 flex items-center justify-center"
+            className="aspect-square max-w-sm mx-auto rounded-2xl mb-6 flex items-center justify-center overflow-hidden"
             style={{
-              background: `linear-gradient(135deg, ${emotionColor}40, ${emotionColor}10)`,
+              background: song?.artwork_url ? 'transparent' : `linear-gradient(135deg, ${emotionColor}40, ${emotionColor}10)`,
               boxShadow: `0 0 60px ${emotionColor}30`,
             }}
           >
-            {isAlbum ? (
+            {song?.artwork_url ? (
+              <img
+                src={song.artwork_url}
+                alt={song.title}
+                className="w-full h-full object-cover"
+              />
+            ) : isAlbum ? (
               <Disc className="w-16 h-16 text-white/50" />
             ) : (
               <Music className="w-16 h-16 text-white/50" />

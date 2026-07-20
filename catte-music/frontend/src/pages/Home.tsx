@@ -129,8 +129,15 @@ function SongCard({ song }: { song: SongOut }) {
   const isAlbum = song.type === 'albums'
   return (
     <Link to={`/song/${song.id}`} className="card group cursor-pointer">
-      <div className="aspect-square rounded-xl bg-gradient-to-br from-neon-purple/30 to-neon-blue/20 mb-3 flex items-center justify-center group-hover:shadow-[0_0_25px_rgba(168,85,247,0.3)] transition-all">
-        {isAlbum ? (
+      <div className="aspect-square rounded-xl bg-gradient-to-br from-neon-purple/30 to-neon-blue/20 mb-3 flex items-center justify-center group-hover:shadow-[0_0_25px_rgba(168,85,247,0.3)] transition-all overflow-hidden relative">
+        {song.artwork_url ? (
+          <img
+            src={song.artwork_url}
+            alt={song.title}
+            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+            loading="lazy"
+          />
+        ) : isAlbum ? (
           <Disc className="w-10 h-10 text-white/40 group-hover:scale-110 transition-transform" />
         ) : (
           <Music className="w-10 h-10 text-white/40 group-hover:scale-110 transition-transform" />

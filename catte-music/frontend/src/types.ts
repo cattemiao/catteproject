@@ -6,6 +6,7 @@ export interface SongOut {
   album?: string | null
   duration_ms?: number | null
   preview_url?: string | null
+  artwork_url?: string | null
   raw_meta?: Record<string, any> | null
   type?: string
   artist_bio?: string | null

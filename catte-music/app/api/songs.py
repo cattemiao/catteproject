@@ -20,13 +20,19 @@ router = APIRouter(prefix="/api/songs", tags=["歌曲"])
 
 
 def _song_to_out(song: Song) -> SongOut:
-    """Song ORM → SongOut，提取预览 URL。"""
+    """Song ORM → SongOut，提取预览 URL 和封面图。"""
     preview_url = None
+    artwork_url = None
     if song.raw_meta:
         try:
-            previews = song.raw_meta.get("attributes", {}).get("previews", [])
+            # 单曲：attributes 下；专辑：顶层
+            attrs = song.raw_meta.get("attributes", song.raw_meta)
+            previews = attrs.get("previews", [])
             if previews:
                 preview_url = previews[0].get("url")
+            artwork = attrs.get("artwork", {})
+            if artwork:
+                artwork_url = artwork.get("url", "").replace("{w}", "600").replace("{h}", "600")
         except (AttributeError, KeyError):
             pass
     return SongOut(
@@ -37,6 +43,7 @@ def _song_to_out(song: Song) -> SongOut:
         album=song.album,
         duration_ms=song.duration_ms,
         preview_url=preview_url,
+        artwork_url=artwork_url,
         raw_meta=song.raw_meta,
         type=getattr(song, "type", "song") or "song",
         artist_bio=getattr(song, "artist_bio", None),

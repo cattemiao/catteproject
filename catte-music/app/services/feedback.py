@@ -1,10 +1,11 @@
 """外部数据反馈与模型持续优化模块。
 
-从 B 站等平台采集音乐风格数据，与 AI 情绪预测对比，
-共识差异 > 40% 时自动纠正情绪标签。
+从 B 站、网易云音乐等多平台采集音乐风格数据，与 AI 情绪预测对比，
+多源加权共识，差异 > 40% 时自动纠正情绪标签。
 """
 from __future__ import annotations
 
+import asyncio
 import datetime
 import logging
 from typing import Any
@@ -18,12 +19,23 @@ from app.models.user import Emotion
 from app.services.crawler.bilibili import (
     get_song_external_styles,
     get_song_comment_emotions,
+    get_bilibili_comment_consensus,
 )
+from app.services.crawler.netease import get_netease_consensus
 from app.services.enrich import analyze_editorial_sentiment
 
 logger = logging.getLogger(__name__)
 
-# 自动纠正阈值：外部共识置信度差超过此值则自动覆盖 AI 预测
+# 各数据源权重（总和 1.0）
+SOURCE_WEIGHTS = {
+    "ai_prediction": 0.30,        # AI 特征分析
+    "bilibili_tags": 0.20,        # B站视频标签
+    "bilibili_comments": 0.15,    # B站热门评论
+    "netease": 0.25,              # 网易云音乐标签+评论
+    "editorial": 0.10,            # Apple Music 编辑评价
+}
+
+# 自动纠正阈值
 AUTO_CORRECT_THRESHOLD = 0.4
 
 
@@ -32,9 +44,14 @@ async def collect_external_feedback(
     song_id: int,
     force: bool = False,
 ) -> dict[str, Any]:
-    """为单首歌曲采集外部平台风格反馈数据。
+    """为单首歌曲采集多平台风格反馈数据。
 
-    返回多源数据对比结果，供前端展示与模型调优。
+    数据源：
+    1. B站视频标签 → 风格/情绪映射
+    2. B站热门评论 → 情绪关键词分析（点赞加权）
+    3. 网易云音乐 → 用户标签 + 热门评论情绪
+    4. Apple Music 编辑评论 → 情感关键词
+    5. AI 预测 → 已有分析结果
     """
     result = await db.execute(select(Song).where(Song.id == song_id))
     song = result.scalar_one_or_none()
@@ -44,13 +61,15 @@ async def collect_external_feedback(
     title = song.title
     artist = song.artist
 
-    # 1. B 站风格标签
-    bili_styles = await get_song_external_styles(title, artist)
+    # 并行采集多源数据
+    bili_styles, bili_emotions, bili_comments, netease_data = await asyncio.gather(
+        get_song_external_styles(title, artist),
+        get_song_comment_emotions(title, artist),
+        get_bilibili_comment_consensus(title, artist),
+        get_netease_consensus(title, artist),
+    )
 
-    # 2. B 站评论情绪
-    bili_emotions = await get_song_comment_emotions(title, artist)
-
-    # 3. Apple Music 编辑评论情感
+    # Apple Music 编辑评论情感
     editorial_scores: dict[str, float] = {}
     if song.raw_meta:
         enriched = song.raw_meta.get("_enriched", {})
@@ -63,57 +82,36 @@ async def collect_external_feedback(
         if editorial_text:
             editorial_scores = analyze_editorial_sentiment(editorial_text)
 
-    # 4. AI 预测
-    pred_result = await db.execute(
-        select(AiPrediction)
-        .where(AiPrediction.song_id == song.id)
-        .order_by(AiPrediction.id.desc())
-        .limit(1)
-    )
-    pred = pred_result.scalar_one_or_none()
+    # AI 预测
+    ai_prediction = await _get_ai_prediction(db, song)
 
-    ai_prediction = None
-    if pred:
-        from sqlalchemy.orm import joinedload
-        pred_with_rel = await db.execute(
-            select(AiPrediction)
-            .where(AiPrediction.id == pred.id)
-            .options(joinedload(AiPrediction.emotion_rel))
-            .limit(1)
-        )
-        pred = pred_with_rel.scalar_one_or_none()
-        if pred and pred.emotion_rel:
-            ai_prediction = {
-                "emotion": pred.emotion_rel.name,
-                "confidence": pred.confidence,
-            }
-
-    # 5. 多源对比
-    comparison = _cross_validate(
+    # 多源加权共识
+    consensus = _compute_weighted_consensus(
         ai_prediction=ai_prediction,
-        bili_primary=bili_styles.get("primary_style"),
-        bili_confidence=bili_styles.get("confidence", 0),
-        bili_emotions=bili_emotions,
+        bili_styles=bili_styles,
+        bili_comments=bili_comments,
+        netease_data=netease_data,
         editorial_scores=editorial_scores,
     )
 
-    # 6. 自动纠正：共识差异 > 40% 时以外部公认结果覆盖 AI 预测
+    # 自动纠正
     correction = await _auto_correct_if_needed(
         db=db,
         song=song,
         ai_prediction=ai_prediction,
-        comparison=comparison,
-        bili_primary=bili_styles.get("primary_style"),
-        bili_confidence=bili_styles.get("confidence", 0),
+        consensus=consensus,
     )
 
-    # 7. 存储反馈结果到 raw_meta
+    # 存储结果
     feedback = {
-        "bilibili_styles": bili_styles,
-        "bilibili_emotions": bili_emotions,
-        "editorial_scores": editorial_scores,
-        "ai_prediction": ai_prediction,
-        "cross_validation": comparison,
+        "sources": {
+            "bilibili_styles": bili_styles,
+            "bilibili_comments": bili_comments,
+            "netease": netease_data,
+            "editorial_scores": editorial_scores,
+            "ai_prediction": ai_prediction,
+        },
+        "consensus": consensus,
         "auto_correction": correction,
         "updated_at": datetime.datetime.utcnow().isoformat(),
     }
@@ -126,69 +124,160 @@ async def collect_external_feedback(
     return feedback
 
 
-def _cross_validate(
+async def _get_ai_prediction(db: AsyncSession, song: Song) -> dict | None:
+    """获取最新的 AI 预测。"""
+    from sqlalchemy.orm import joinedload
+
+    pred_result = await db.execute(
+        select(AiPrediction)
+        .where(AiPrediction.song_id == song.id)
+        .options(joinedload(AiPrediction.emotion_rel))
+        .order_by(AiPrediction.id.desc())
+        .limit(1)
+    )
+    pred = pred_result.scalar_one_or_none()
+    if pred and pred.emotion_rel:
+        return {
+            "emotion": pred.emotion_rel.name,
+            "confidence": pred.confidence,
+        }
+    return None
+
+
+def _compute_weighted_consensus(
     ai_prediction: dict | None,
-    bili_primary: str | None,
-    bili_confidence: float,
-    bili_emotions: dict[str, float],
-    editorial_scores: dict[str, float],
+    bili_styles: dict | None,
+    bili_comments: dict | None,
+    netease_data: dict | None,
+    editorial_scores: dict[str, float] | None,
 ) -> dict[str, Any]:
-    """多源数据交叉验证，判断 AI 预测一致性与建议调整方向。"""
-    sources: dict[str, str] = {}
-    sources["ai"] = ai_prediction["emotion"] if ai_prediction else "未知"
+    """多源加权共识计算。
 
-    sources["bilibili"] = bili_primary or "无数据"
+    每个数据源返回 {情绪: 置信度}，按权重汇总投票。
+    """
+    # 收集各源的最高情绪 + 置信度
+    source_votes: list[tuple[str, float, float, str]] = []
+    # (emotion, confidence, weight, source_label)
 
-    top_editorial = max(editorial_scores, key=editorial_scores.get) if editorial_scores else None
-    sources["editorial"] = top_editorial or "无数据"
-
-    # 计算一致性
-    votes: dict[str, int] = {}
+    # 1. AI
     if ai_prediction:
-        votes[ai_prediction["emotion"]] = votes.get(ai_prediction["emotion"], 0) + 1
-    if bili_primary:
-        votes[bili_primary] = votes.get(bili_primary, 0) + 1
-    if top_editorial:
-        votes[top_editorial] = votes.get(top_editorial, 0) + 1
+        source_votes.append((
+            ai_prediction["emotion"],
+            ai_prediction["confidence"],
+            SOURCE_WEIGHTS["ai_prediction"],
+            "AI分析",
+        ))
 
-    max_votes = max(votes.values()) if votes else 0
-    consensus_emotion = max(votes, key=votes.get) if votes else "未知"
+    # 2. B站标签
+    if bili_styles and bili_styles.get("primary_style"):
+        source_votes.append((
+            bili_styles["primary_style"],
+            bili_styles.get("confidence", 0),
+            SOURCE_WEIGHTS["bilibili_tags"],
+            "B站标签",
+        ))
+
+    # 3. B站评论
+    if bili_comments and bili_comments.get("primary_emotion"):
+        source_votes.append((
+            bili_comments["primary_emotion"],
+            bili_comments.get("confidence", 0),
+            SOURCE_WEIGHTS["bilibili_comments"],
+            "B站评论",
+        ))
+
+    # 4. 网易云
+    if netease_data and netease_data.get("primary_emotion") and netease_data.get("has_data"):
+        source_votes.append((
+            netease_data["primary_emotion"],
+            netease_data.get("confidence", 0),
+            SOURCE_WEIGHTS["netease"],
+            "网易云音乐",
+        ))
+
+    # 5. 编辑评论
+    if editorial_scores:
+        top_editorial = max(editorial_scores, key=editorial_scores.get)
+        editorial_conf = editorial_scores[top_editorial]
+        source_votes.append((
+            top_editorial,
+            editorial_conf,
+            SOURCE_WEIGHTS["editorial"],
+            "编辑评价",
+        ))
+
+    if not source_votes:
+        return {
+            "consensus_emotion": "未知",
+            "confidence": 0,
+            "agreement_level": "无",
+            "vote_detail": [],
+            "weighted_score": {},
+            "suggestions": ["暂无外部数据，建议先同步 Apple Music 或等待 B站/网易云数据"],
+        }
+
+    # 加权投票
+    weighted: dict[str, float] = {}
+    vote_detail: list[dict] = []
+
+    for emotion, conf, weight, label in source_votes:
+        weighted_score = conf * weight
+        weighted[emotion] = weighted.get(emotion, 0) + weighted_score
+        vote_detail.append({
+            "source": label,
+            "emotion": emotion,
+            "confidence": round(conf, 3),
+            "weight": weight,
+            "weighted_score": round(weighted_score, 3),
+        })
+
+    # 共识情绪（加权最高分）
+    if weighted:
+        consensus_emotion = max(weighted, key=weighted.get)
+        consensus_score = weighted[consensus_emotion]
+    else:
+        consensus_emotion = "未知"
+        consensus_score = 0
+
+    # 一致度评级
+    max_possible = sum(SOURCE_WEIGHTS.values())
+    normalized_score = consensus_score / max_possible if max_possible > 0 else 0
 
     agreement = (
-        "高" if max_votes >= 3
-        else "中" if max_votes == 2
-        else "低" if max_votes >= 1
+        "高" if normalized_score >= 0.5
+        else "中" if normalized_score >= 0.25
+        else "低" if normalized_score >= 0.1
         else "无"
     )
 
-    # 模型调优建议
+    # AI 与共识的差别
+    ai_emotion = ai_prediction["emotion"] if ai_prediction else None
+    ai_matches_consensus = ai_emotion == consensus_emotion
+
     suggestions: list[str] = []
-    if ai_prediction and bili_primary:
-        if ai_prediction["emotion"] != bili_primary and bili_confidence > 0.3:
+    if ai_emotion and not ai_matches_consensus:
+        if normalized_score >= 0.4:
             suggestions.append(
-                f"B站标签指向「{bili_primary}」(置信度{bili_confidence:.0%})，"
-                f"与AI预测「{ai_prediction['emotion']}」不一致，建议复核模板参数"
+                f"多源共识「{consensus_emotion}」(得分{normalized_score:.0%})与AI预测「{ai_emotion}」存在显著分歧"
             )
-        elif ai_prediction["emotion"] == bili_primary:
+        if normalized_score >= AUTO_CORRECT_THRESHOLD:
             suggestions.append(
-                f"B站标签与AI预测一致「{bili_primary}」，置信度高"
+                f"共识度{normalized_score:.0%}超过{AUTO_CORRECT_THRESHOLD:.0%}阈值，建议自动纠正"
             )
+    elif ai_matches_consensus:
+        suggestions.append(f"多源共识与AI预测一致「{consensus_emotion}」，置信度高")
 
-    if top_editorial and ai_prediction and top_editorial != ai_prediction["emotion"]:
-        suggestions.append(
-            f"编辑评论暗示「{top_editorial}」，建议检查特征向量的情绪映射"
-        )
-
-    if not suggestions:
-        suggestions.append("多源数据量不足，建议扩充外部反馈数据")
+    if len(source_votes) < 3:
+        suggestions.append(f"数据源({len(source_votes)}个)偏少，建议扩充多平台反馈")
 
     return {
-        "sources": sources,
         "consensus_emotion": consensus_emotion,
+        "confidence": round(normalized_score, 3),
         "agreement_level": agreement,
-        "vote_counts": votes,
+        "vote_detail": vote_detail,
+        "weighted_score": {k: round(v, 3) for k, v in sorted(weighted.items(), key=lambda x: -x[1])},
+        "ai_matches_consensus": ai_matches_consensus,
         "suggestions": suggestions,
-        "bili_confidence": bili_confidence,
     }
 
 
@@ -196,92 +285,86 @@ async def _auto_correct_if_needed(
     db: AsyncSession,
     song: Song,
     ai_prediction: dict | None,
-    comparison: dict[str, Any],
-    bili_primary: str | None,
-    bili_confidence: float,
+    consensus: dict[str, Any],
 ) -> dict[str, Any] | None:
-    """共识差异 > 阈值时，自动将歌曲情绪纠正为外部公认结果。
+    """多源共识差异 > 阈值时，自动纠正情绪标签。
 
-    条件：
-    1. B 站风格标签置信度 ≥ AUTO_CORRECT_THRESHOLD (40%)
-    2. B 站标签 与 AI 预测不一致
-    3. 一致度评级为「低」或「中」
-
-    纠正动作：
-    - 创建新 AiPrediction，标记 source="auto_corrected"
-    - 置信度设为 bili_confidence
+    触发条件：
+    1. 加权共识置信度 ≥ AUTO_CORRECT_THRESHOLD (40%)
+    2. 共识情绪 ≠ AI 预测情绪
+    3. 一致度评级 ≠ "高"
     """
-    if not ai_prediction or not bili_primary:
+    if not ai_prediction or not consensus:
         return None
 
+    consensus_emotion = consensus.get("consensus_emotion", "未知")
+    consensus_confidence = consensus.get("confidence", 0)
     ai_emotion = ai_prediction["emotion"]
     ai_confidence = ai_prediction["confidence"]
+    agreement = consensus.get("agreement_level", "无")
 
-    # 条件 1：B 站置信度足够高
-    if bili_confidence < AUTO_CORRECT_THRESHOLD:
-        return {"corrected": False, "reason": f"B站置信度{bili_confidence:.0%}不足{AUTO_CORRECT_THRESHOLD:.0%}阈值"}
+    # 条件检查
+    if consensus_emotion == "未知" or consensus_emotion == ai_emotion:
+        return {
+            "corrected": False,
+            "reason": f"共识({consensus_emotion})与AI({ai_emotion})一致，无需纠正",
+        }
 
-    # 条件 2：情绪不一致
-    if bili_primary == ai_emotion:
-        return {"corrected": False, "reason": f"B站({bili_primary})与AI({ai_emotion})一致，无需纠正"}
+    if consensus_confidence < AUTO_CORRECT_THRESHOLD:
+        return {
+            "corrected": False,
+            "reason": f"多源共识置信度{consensus_confidence:.0%}不足{AUTO_CORRECT_THRESHOLD:.0%}阈值",
+        }
 
-    # 条件 3：共识差距够大
-    confidence_gap = abs(bili_confidence - ai_confidence)
-    agreement = comparison.get("agreement_level", "无")
     if agreement == "高":
-        return {"corrected": False, "reason": "多源一致度较高，跳过自动纠正"}
+        return {"corrected": False, "reason": "一致度较高，跳过纠正"}
 
-    # 确认是否需要纠正（差 > 40% 或一致度低）
-    if confidence_gap < AUTO_CORRECT_THRESHOLD and agreement == "中":
-        return {"corrected": False, "reason": f"置信度差{confidence_gap:.0%}未达阈值，一致度中等暂不纠正"}
+    confidence_gap = abs(consensus_confidence - ai_confidence)
 
-    # ── 执行纠正 ──
+    # 执行纠正
     logger.info(
-        "自动纠正: 歌曲 #%d (%s - %s) AI预测「%s」→ B站公认「%s」(gap=%.0f%%)",
-        song.id, song.title, song.artist, ai_emotion, bili_primary, confidence_gap,
+        "自动纠正: #%d (%s - %s) AI「%s」→ 多源共识「%s」(gap=%.0f%%)",
+        song.id, song.title, song.artist, ai_emotion, consensus_emotion, confidence_gap,
     )
 
-    # 查找目标情绪
-    from sqlalchemy import select as _select
     emo_result = await db.execute(
-        _select(Emotion).where(Emotion.name == bili_primary)
+        select(Emotion).where(Emotion.name == consensus_emotion)
     )
     target_emotion = emo_result.scalar_one_or_none()
 
     if not target_emotion:
-        return {"corrected": False, "reason": f"情绪模板中未找到「{bili_primary}」"}
+        return {"corrected": False, "reason": f"情绪模板中未找到「{consensus_emotion}」"}
 
-    # 写入新的 AiPrediction（标记为自动纠正）
     new_pred = AiPrediction(
         song_id=song.id,
         emotion_id=target_emotion.id,
-        confidence=bili_confidence,
+        confidence=consensus_confidence,
         feature_vector=None,
-        model_version="auto_corrected_v1",
+        model_version="multi_source_corrected_v1",
     )
     db.add(new_pred)
     await db.commit()
 
     logger.info(
-        "自动纠正完成: 歌曲 #%d → %s (置信度 %.0f%%)",
-        song.id, bili_primary, bili_confidence,
+        "纠正完成: #%d → %s (%.0f%%)",
+        song.id, consensus_emotion, consensus_confidence,
     )
 
     return {
         "corrected": True,
         "previous_emotion": ai_emotion,
         "previous_confidence": ai_confidence,
-        "new_emotion": bili_primary,
-        "new_confidence": bili_confidence,
+        "new_emotion": consensus_emotion,
+        "new_confidence": consensus_confidence,
         "confidence_gap": round(confidence_gap, 3),
         "agreement_level": agreement,
-        "source": "bilibili_consensus",
+        "source": "multi_source_consensus",
         "timestamp": datetime.datetime.utcnow().isoformat(),
     }
 
 
 async def batch_feedback(db: AsyncSession, limit: int = 20) -> dict[str, Any]:
-    """批量采集外部反馈数据。"""
+    """批量采集多源外部反馈。"""
     result = await db.execute(
         select(Song).order_by(Song.id.desc()).limit(limit)
     )

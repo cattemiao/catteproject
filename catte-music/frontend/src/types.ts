@@ -58,3 +58,49 @@ export interface FavoriteOut {
   song_id: number
   created_at: string
 }
+
+// 多源共识反馈
+export interface SourceVote {
+  source: string
+  emotion: string
+  confidence: number
+  weight: number
+  weighted_score: number
+}
+
+export interface ConsensusResult {
+  consensus_emotion: string
+  confidence: number
+  agreement_level: string
+  vote_detail: SourceVote[]
+  weighted_score: Record<string, number>
+  ai_matches_consensus: boolean
+  suggestions: string[]
+}
+
+export interface AutoCorrection {
+  corrected: boolean
+  reason?: string
+  previous_emotion?: string
+  previous_confidence?: number
+  new_emotion?: string
+  new_confidence?: number
+  confidence_gap?: number
+  agreement_level?: string
+  source?: string
+}
+
+export interface FeedbackSources {
+  bilibili_styles: Record<string, any> | null
+  bilibili_comments: Record<string, any> | null
+  netease: Record<string, any> | null
+  editorial_scores: Record<string, number> | null
+  ai_prediction: Record<string, any> | null
+}
+
+export interface FeedbackData {
+  sources: FeedbackSources
+  consensus: ConsensusResult
+  auto_correction: AutoCorrection | null
+  updated_at: string
+}

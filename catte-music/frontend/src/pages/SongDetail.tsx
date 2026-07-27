@@ -4,7 +4,7 @@ import { Disc, Globe, Heart, Image, Music, Pause, Play, Sparkles } from 'lucide-
 import { emotionApi, songsApi } from '../api/client'
 import ParticleBg from '../components/ParticleBg'
 import EmotionRadar from '../components/EmotionRadar'
-import type { PredictionData, RadarData, ReviewData, SongOut } from '../types'
+import type { FeedbackData, PredictionData, RadarData, ReviewData, SongOut } from '../types'
 
 declare global {
   interface Window {
@@ -47,7 +47,7 @@ export default function SongDetail() {
   const [seeking, setSeeking] = useState(false)
   const [useMusicKit, setUseMusicKit] = useState(false)
   const [musicKitAuthorized, setMusicKitAuthorized] = useState(false)
-  const [feedback, setFeedback] = useState<any>(null)
+  const [feedback, setFeedback] = useState<FeedbackData | null>(null)
   const [feedbackLoading, setFeedbackLoading] = useState(false)
 
   const audioRef = useRef<HTMLAudioElement | null>(null)
@@ -379,62 +379,107 @@ export default function SongDetail() {
               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs border border-neon-pink/30 hover:border-neon-pink/60 transition-all text-slate-300 hover:text-neon-pink disabled:opacity-50"
             >
               <Globe className="w-3.5 h-3.5" />
-              {feedbackLoading ? '采集中...' : 'B站风格验证'}
+              {feedbackLoading ? '采集中...' : '多源公认度验证'}
             </button>
           </div>
 
-          {/* 外部反馈结果 */}
-          {feedback?.cross_validation && (
-            <div className="glass mt-4 p-4 rounded-xl text-left">
-              <p className="text-xs text-slate-400 font-medium mb-2">多源交叉验证</p>
+          {/* 多源公认度评估结果 */}
+          {feedback?.consensus && (
+            <div className="glass mt-4 p-4 rounded-xl text-left space-y-3">
+              <p className="text-xs text-slate-400 font-medium">多源公认度评估</p>
 
-              {/* 来源一致性 */}
-              <div className="flex items-center gap-2 mb-2">
-                <span className="text-xs px-2 py-0.5 rounded bg-neon-purple/10 text-neon-purple">
-                  AI: {feedback.cross_validation.sources?.ai || '-'}
-                </span>
-                <span className="text-xs px-2 py-0.5 rounded bg-neon-cyan/10 text-neon-cyan">
-                  B站: {feedback.cross_validation.sources?.bilibili || '-'}
-                </span>
-                <span className="text-xs px-2 py-0.5 rounded bg-neon-pink/10 text-neon-pink">
-                  评价: {feedback.cross_validation.sources?.editorial || '-'}
-                </span>
-              </div>
-
-              {/* 一致度 */}
-              <div className="flex items-center gap-2 mb-2">
-                <span className="text-xs text-slate-400">一致度：</span>
-                <span className={`text-xs font-bold ${
-                  feedback.cross_validation.agreement_level === '高' ? 'text-green-400' :
-                  feedback.cross_validation.agreement_level === '中' ? 'text-yellow-400' :
-                  'text-red-400'
-                }`}>
-                  {feedback.cross_validation.agreement_level}
+              {/* 共识结果 */}
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-sm font-bold" style={{ color: emotionColor }}>
+                  {feedback.consensus.consensus_emotion}
                 </span>
                 <span className="text-xs text-slate-500">
-                  共识：{feedback.cross_validation.consensus_emotion}
+                  可信度 {(feedback.consensus.confidence * 100).toFixed(0)}%
                 </span>
+                <span className={`text-xs px-1.5 py-0.5 rounded font-bold ${
+                  feedback.consensus.agreement_level === '高' ? 'bg-green-500/20 text-green-400' :
+                  feedback.consensus.agreement_level === '中' ? 'bg-yellow-500/20 text-yellow-400' :
+                  feedback.consensus.agreement_level === '低' ? 'bg-red-500/20 text-red-400' :
+                  'bg-slate-500/20 text-slate-400'
+                }`}>
+                  一致度：{feedback.consensus.agreement_level}
+                </span>
+                {feedback.consensus.ai_matches_consensus && (
+                  <span className="text-xs px-1.5 py-0.5 rounded bg-neon-purple/10 text-neon-purple">
+                    ✓ AI一致
+                  </span>
+                )}
               </div>
 
-              {/* B站风格标签 */}
-              {feedback.bilibili_styles?.style_counts && Object.keys(feedback.bilibili_styles.style_counts).length > 0 && (
-                <div className="flex flex-wrap gap-1 mb-2">
-                  {Object.entries(feedback.bilibili_styles.style_counts as Record<string, number>).slice(0, 5).map(([style, count]) => (
-                    <span key={style} className="text-xs px-1.5 py-0.5 rounded bg-white/5 text-slate-400">
-                      {style} ×{count as number}
+              {/* 各源投票明细 */}
+              {feedback.consensus.vote_detail.length > 0 && (
+                <div className="space-y-1">
+                  <p className="text-xs text-slate-500">投票明细：</p>
+                  {feedback.consensus.vote_detail.map((v, i) => (
+                    <div key={i} className="flex items-center gap-2 text-xs">
+                      <span className="w-16 text-slate-500">{v.source}</span>
+                      <span className="font-medium text-slate-300 w-14">{v.emotion}</span>
+                      <span className="text-slate-500 w-16">置信{(v.confidence * 100).toFixed(0)}%</span>
+                      <span className="text-slate-600">权重{v.weight}</span>
+                      <span className="text-slate-500 ml-auto">得分{v.weighted_score.toFixed(2)}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* 加权总分排名 */}
+              {Object.keys(feedback.consensus.weighted_score).length > 0 && (
+                <div className="flex flex-wrap gap-1">
+                  <span className="text-xs text-slate-500">加权排名：</span>
+                  {Object.entries(feedback.consensus.weighted_score).slice(0, 5).map(([emotion, score]) => (
+                    <span key={emotion} className="text-xs px-1.5 py-0.5 rounded bg-white/5 text-slate-400">
+                      {emotion} {score.toFixed(2)}
                     </span>
                   ))}
-                  <span className="text-xs text-slate-600">
-                    来源：{feedback.bilibili_styles.source}
-                  </span>
+                </div>
+              )}
+
+              {/* 自动纠正提示 */}
+              {feedback.auto_correction?.corrected && (
+                <div className="p-3 rounded-lg bg-neon-pink/10 border border-neon-pink/20">
+                  <p className="text-xs text-neon-pink font-medium mb-1">
+                    已自动纠正情绪标签
+                  </p>
+                  <p className="text-xs text-slate-400">
+                    {feedback.auto_correction.previous_emotion}
+                    （{((feedback.auto_correction.previous_confidence || 0) * 100).toFixed(0)}%）
+                    → {feedback.auto_correction.new_emotion}
+                    （{((feedback.auto_correction.new_confidence || 0) * 100).toFixed(0)}%）
+                  </p>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    差距：{((feedback.auto_correction.confidence_gap || 0) * 100).toFixed(0)}%
+                  </p>
+                </div>
+              )}
+
+              {/* B站 & 网易云 源数据摘要 */}
+              {feedback.sources && (
+                <div className="flex flex-wrap gap-2 text-xs text-slate-500 pt-1 border-t border-white/5">
+                  {feedback.sources.bilibili_styles?.primary_style && (
+                    <span>B站标签：{feedback.sources.bilibili_styles.primary_style}</span>
+                  )}
+                  {feedback.sources.bilibili_comments?.primary_emotion && (
+                    <span>B站评论：{feedback.sources.bilibili_comments.primary_emotion}</span>
+                  )}
+                  {feedback.sources.netease?.primary_emotion && (
+                    <span>网易云：{feedback.sources.netease.primary_emotion}</span>
+                  )}
+                  {feedback.sources.ai_prediction?.emotion && (
+                    <span>AI分析：{feedback.sources.ai_prediction.emotion}</span>
+                  )}
                 </div>
               )}
 
               {/* 建议 */}
-              {feedback.cross_validation.suggestions?.length > 0 && (
-                <div className="mt-2 pt-2 border-t border-white/5">
-                  <p className="text-xs text-slate-500 mb-1">优化建议：</p>
-                  {feedback.cross_validation.suggestions.map((s: string, i: number) => (
+              {feedback.consensus.suggestions?.length > 0 && (
+                <div className="pt-2 border-t border-white/5">
+                  <p className="text-xs text-slate-500 mb-1">建议：</p>
+                  {feedback.consensus.suggestions.map((s, i) => (
                     <p key={i} className="text-xs text-slate-400 leading-relaxed">· {s}</p>
                   ))}
                 </div>

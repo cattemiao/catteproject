@@ -20,7 +20,7 @@ from app.services.crawler.anti_crawl import random_delay, random_user_agent
 logger = logging.getLogger(__name__)
 
 BILI_SEARCH_API = "https://api.bilibili.com/x/web-interface/search/type"
-BILI_SEARCH_WEB = "https://search.bilibili.com/all"
+BILI_COMMENT_API = "https://api.bilibili.com/x/v2/reply"
 
 
 # ── 视频标签 → 音乐风格/情绪 映射 ──
@@ -261,3 +261,148 @@ async def get_song_comment_emotions(
             emotion_scores[emotion] = min(score, 1.0)
 
     return emotion_scores
+
+
+async def fetch_video_comments(
+    oid: int,
+    page: int = 1,
+    page_size: int = 20,
+    timeout: float = 15.0,
+) -> dict[str, Any]:
+    """获取 B 站视频评论。"""
+    headers = {
+        "User-Agent": random_user_agent(),
+        "Referer": "https://www.bilibili.com/",
+        "Accept": "application/json, text/plain, */*",
+        "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+    }
+    params = {
+        "type": 1,  # 视频评论
+        "oid": oid,
+        "pn": page,
+        "ps": min(page_size, 20),
+        "sort": 1,  # 按热度排序
+    }
+
+    async with httpx.AsyncClient(timeout=timeout, headers=headers) as cli:
+        try:
+            resp = await cli.get(BILI_COMMENT_API, params=params)
+            resp.raise_for_status()
+            data = resp.json()
+        except (httpx.HTTPError, ValueError) as exc:
+            logger.warning("B站评论获取失败: oid=%d (%s)", oid, exc)
+            return {"replies": [], "total": 0}
+
+    replies = data.get("data", {}).get("replies", []) or []
+    comments = []
+    for r in replies:
+        message = r.get("content", {}).get("message", "") if isinstance(r.get("content"), dict) else ""
+        message = re.sub(r"<[^>]+>", "", message)
+        if message:
+            comments.append({
+                "rpid": r.get("rpid"),
+                "content": message,
+                "like": r.get("like", 0),
+                "ctime": r.get("ctime", 0),
+            })
+
+    return {
+        "replies": comments,
+        "total": data.get("data", {}).get("page", {}).get("count", 0) if data.get("data") else 0,
+    }
+
+
+def analyze_comment_emotions(comments: list[dict]) -> dict[str, float]:
+    """分析评论列表中的情绪关键词得分。
+
+    权重：点赞数加权（更热的评论权重更高）。
+    """
+    scores: dict[str, float] = {}
+    total_weight = 0.0
+
+    for c in comments:
+        text = c.get("content", "")
+        likes = c.get("like", 0)
+        weight = 1.0 + min(likes / 100, 2.0)  # 点赞越多权重越大，上限 3x
+
+        for emotion, words in COMMENT_EMOTION_WORDS.items():
+            for word in words:
+                count = text.count(word)
+                if count > 0:
+                    scores[emotion] = scores.get(emotion, 0) + count * 0.15 * weight
+                    total_weight += weight
+
+    # 归一化
+    if total_weight > 0:
+        for emotion in scores:
+            scores[emotion] = min(scores[emotion] / max(1, total_weight / 3), 1.0)
+
+    return scores
+
+
+async def get_bilibili_comment_consensus(
+    title: str,
+    artist: str,
+    max_videos: int = 3,
+    comments_per_video: int = 20,
+) -> dict[str, Any]:
+    """从 B 站热门视频评论中提取情绪共识。
+
+    流程：
+    1. 搜索歌曲 → 取前 N 个视频
+    2. 对每个视频取热门评论
+    3. 汇总评论情绪得分
+    """
+    query = _build_search_query(title, artist)
+    random_delay(0.5, 1.0)
+    search_result = await search_videos(query, page=1, page_size=min(max_videos, 10))
+    videos = search_result.get("videos", [])
+
+    if not videos:
+        return {
+            "primary_emotion": None,
+            "confidence": 0,
+            "scores": {},
+            "comments_found": 0,
+            "source": "bilibili_comments",
+        }
+
+    all_comments: list[dict] = []
+    for v in videos[:max_videos]:
+        aid = v.get("aid", 0)
+        if not aid:
+            continue
+        random_delay(0.5, 1.5)
+        result = await fetch_video_comments(oid=aid, page=1, page_size=comments_per_video)
+        all_comments.extend(result.get("replies", []))
+
+    if not all_comments:
+        return {
+            "primary_emotion": None,
+            "confidence": 0,
+            "scores": {},
+            "comments_found": 0,
+            "source": "bilibili_comments",
+        }
+
+    scores = analyze_comment_emotions(all_comments)
+
+    if not scores:
+        return {
+            "primary_emotion": None,
+            "confidence": 0,
+            "scores": {},
+            "comments_found": len(all_comments),
+            "source": "bilibili_comments",
+        }
+
+    primary = max(scores, key=scores.get)
+    confidence = scores[primary]
+
+    return {
+        "primary_emotion": primary,
+        "confidence": round(confidence, 3),
+        "scores": {k: round(v, 3) for k, v in sorted(scores.items(), key=lambda x: -x[1])},
+        "comments_found": len(all_comments),
+        "source": "bilibili_comments",
+    }

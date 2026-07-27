@@ -63,24 +63,56 @@ def _classify_by_profile(
 ) -> tuple[str, float]:
     """基于 7 维情绪模板的最近邻分类器。
 
-    特征 17 维 → 7 维映射：
+    特征 35 维 → 7 维映射（chroma/tonnetz 增强版）：
     loudness, high_freq, rhythm, soundstage, layering, soothing, prosody
     """
     import numpy as np
     from app.services.ai.seed_emotions import EMOTION_PROFILES
 
+    # 35 维特征拆解
     tempo, rmse, centroid, zcr = features[0], features[1], features[2], features[3]
-    mfcc = features[4:17]
+    mfcc = features[4:17]       # 13 维
+    chroma = features[17:29]    # 12 维
+    tonnetz = features[29:35]   # 6 维
+
+    # ── 7 维映射（chroma/tonnetz 增强）──
 
     loudness = min(100, max(0, rmse * 1000))
-    high_freq = min(100, max(0, (centroid / 5000) * 60 + float(np.mean(mfcc[:4])) * 5))
+
+    # 高频：频谱质心 + MFCC 低阶均值 + chroma 高半音响应
+    high_freq = min(100, max(0,
+        (centroid / 5000) * 55 +
+        float(np.mean(mfcc[:4])) * 5 +
+        float(np.mean(chroma[6:])) * 35  # chroma 6-11 对应高半音
+    ))
+
     rhythm = min(100, max(0, tempo * 0.8))
-    soundstage = min(100, max(0, 50 + float(np.std(mfcc[4:10])) * 3))
-    layering = min(100, max(0, 40 + float(np.std(mfcc)) * 5))
-    # 舒缓：反比于响度和高频能量
-    soothing = min(100, max(0, 100 - rmse * 800 - (centroid / 5000) * 30))
-    # 韵律丰富度：节奏变化 + MFCC 动态范围
-    prosody = min(100, max(0, 30 + float(np.std(mfcc[2:8])) * 4 + (zcr * 80)))
+
+    # 声场：MFCC 中高阶标准差 + chroma 标准差（反映和声空间广度）
+    soundstage = min(100, max(0,
+        45 + float(np.std(mfcc[4:10])) * 3 +
+        float(np.std(chroma)) * 20
+    ))
+
+    # 层次：MFCC 全阶标准差 + tonnetz 标准差（反映调性复杂度）
+    layering = min(100, max(0,
+        35 + float(np.std(mfcc)) * 4 +
+        float(np.std(tonnetz)) * 15
+    ))
+
+    # 舒缓：反比于响度和高频，正比于 chroma 低频能量
+    soothing = min(100, max(0,
+        100 - rmse * 750 -
+        (centroid / 5000) * 28 +
+        float(np.mean(chroma[:4])) * 25  # 低半音越多越舒缓
+    ))
+
+    # 韵律：节奏变化 + MFCC 动态 + tonnetz 调性变化
+    prosody = min(100, max(0,
+        25 + float(np.std(mfcc[2:8])) * 3.5 +
+        (zcr * 75) +
+        float(np.std(tonnetz)) * 12
+    ))
 
     audio_dim = np.array([loudness, high_freq, rhythm, soundstage, layering, soothing, prosody])
 

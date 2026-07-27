@@ -10,11 +10,18 @@ if TYPE_CHECKING:
 
 # 常见浏览器 User-Agent 池
 USER_AGENTS = [
+    # Chrome Win/Mac/Linux
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1",
     "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+    # Safari Mac/iOS
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15",
+    "Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1",
+    # Firefox
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:126.0) Gecko/20100101 Firefox/126.0",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:125.0) Gecko/20100101 Firefox/125.0",
+    # Edge
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36 Edg/125.0.0.0",
 ]
 
 
@@ -51,6 +58,9 @@ class ProxyPool:
             return None
         return {"http": proxy, "https": proxy}
 
+    def __len__(self) -> int:
+        return len(self._proxies)
+
 
 def make_session(
     proxy_pool: ProxyPool | None = None,
@@ -76,3 +86,31 @@ def make_session(
 
     session.timeout = timeout  # type: ignore[attr-defined]
     return session
+
+
+# ── 便捷函数 ──
+
+def safe_get(url: str, **kwargs) -> requests.Response | None:
+    """带反爬策略的 GET 请求，异常时返回 None。"""
+    import requests as req
+
+    session = make_session()
+    random_delay(0.5, 2.0)
+    try:
+        resp = session.get(url, **kwargs)
+        resp.raise_for_status()
+        return resp
+    except req.RequestException:
+        return None
+
+
+def rotate_headers() -> dict[str, str]:
+    """返回一组随机浏览器头，包含 Accept-Language / Referer 等。"""
+    languages = ["zh-CN,zh;q=0.9,en;q=0.8", "en-US,en;q=0.9,zh-CN;q=0.8"]
+    return {
+        "User-Agent": random_user_agent(),
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+        "Accept-Language": random.choice(languages),
+        "Accept-Encoding": "gzip, deflate, br",
+        "Cache-Control": "max-age=0",
+    }

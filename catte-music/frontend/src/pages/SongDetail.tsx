@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { useParams } from 'react-router-dom'
-import { Disc, Heart, Music, Pause, Play, Sparkles } from 'lucide-react'
+import { Link, useParams } from 'react-router-dom'
+import { Disc, Globe, Heart, Image, Music, Pause, Play, Sparkles } from 'lucide-react'
 import { emotionApi, songsApi } from '../api/client'
 import ParticleBg from '../components/ParticleBg'
 import EmotionRadar from '../components/EmotionRadar'
@@ -47,6 +47,8 @@ export default function SongDetail() {
   const [seeking, setSeeking] = useState(false)
   const [useMusicKit, setUseMusicKit] = useState(false)
   const [musicKitAuthorized, setMusicKitAuthorized] = useState(false)
+  const [feedback, setFeedback] = useState<any>(null)
+  const [feedbackLoading, setFeedbackLoading] = useState(false)
 
   const audioRef = useRef<HTMLAudioElement | null>(null)
   const progressRef = useRef<HTMLInputElement | null>(null)
@@ -205,6 +207,19 @@ export default function SongDetail() {
     }
   }
 
+  const handleFeedback = async () => {
+    if (!id) return
+    setFeedbackLoading(true)
+    try {
+      const { data } = await songsApi.getFeedback(Number(id))
+      setFeedback(data)
+    } catch (err: any) {
+      alert(err?.response?.data?.detail || '反馈采集失败')
+    } finally {
+      setFeedbackLoading(false)
+    }
+  }
+
   const toggleFavorite = async () => {
     if (!song) return
     setFavLoading(true)
@@ -346,6 +361,84 @@ export default function SongDetail() {
             <div className="glass mt-4 p-4 rounded-xl text-left">
               <p className="text-slate-300 text-sm leading-relaxed">{review.review}</p>
               <p className="text-slate-500 text-xs mt-2">— {review.source}</p>
+            </div>
+          )}
+
+          {/* 数据增强按钮组 */}
+          <div className="flex flex-wrap items-center gap-2 mt-4">
+            <Link
+              to={`/song/${id}/lyrics`}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs border border-neon-cyan/30 hover:border-neon-cyan/60 transition-all text-slate-300 hover:text-neon-cyan"
+            >
+              <Image className="w-3.5 h-3.5" />
+              AI 歌词配图
+            </Link>
+            <button
+              onClick={handleFeedback}
+              disabled={feedbackLoading}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs border border-neon-pink/30 hover:border-neon-pink/60 transition-all text-slate-300 hover:text-neon-pink disabled:opacity-50"
+            >
+              <Globe className="w-3.5 h-3.5" />
+              {feedbackLoading ? '采集中...' : 'B站风格验证'}
+            </button>
+          </div>
+
+          {/* 外部反馈结果 */}
+          {feedback?.cross_validation && (
+            <div className="glass mt-4 p-4 rounded-xl text-left">
+              <p className="text-xs text-slate-400 font-medium mb-2">多源交叉验证</p>
+
+              {/* 来源一致性 */}
+              <div className="flex items-center gap-2 mb-2">
+                <span className="text-xs px-2 py-0.5 rounded bg-neon-purple/10 text-neon-purple">
+                  AI: {feedback.cross_validation.sources?.ai || '-'}
+                </span>
+                <span className="text-xs px-2 py-0.5 rounded bg-neon-cyan/10 text-neon-cyan">
+                  B站: {feedback.cross_validation.sources?.bilibili || '-'}
+                </span>
+                <span className="text-xs px-2 py-0.5 rounded bg-neon-pink/10 text-neon-pink">
+                  评价: {feedback.cross_validation.sources?.editorial || '-'}
+                </span>
+              </div>
+
+              {/* 一致度 */}
+              <div className="flex items-center gap-2 mb-2">
+                <span className="text-xs text-slate-400">一致度：</span>
+                <span className={`text-xs font-bold ${
+                  feedback.cross_validation.agreement_level === '高' ? 'text-green-400' :
+                  feedback.cross_validation.agreement_level === '中' ? 'text-yellow-400' :
+                  'text-red-400'
+                }`}>
+                  {feedback.cross_validation.agreement_level}
+                </span>
+                <span className="text-xs text-slate-500">
+                  共识：{feedback.cross_validation.consensus_emotion}
+                </span>
+              </div>
+
+              {/* B站风格标签 */}
+              {feedback.bilibili_styles?.style_counts && Object.keys(feedback.bilibili_styles.style_counts).length > 0 && (
+                <div className="flex flex-wrap gap-1 mb-2">
+                  {Object.entries(feedback.bilibili_styles.style_counts as Record<string, number>).slice(0, 5).map(([style, count]) => (
+                    <span key={style} className="text-xs px-1.5 py-0.5 rounded bg-white/5 text-slate-400">
+                      {style} ×{count as number}
+                    </span>
+                  ))}
+                  <span className="text-xs text-slate-600">
+                    来源：{feedback.bilibili_styles.source}
+                  </span>
+                </div>
+              )}
+
+              {/* 建议 */}
+              {feedback.cross_validation.suggestions?.length > 0 && (
+                <div className="mt-2 pt-2 border-t border-white/5">
+                  <p className="text-xs text-slate-500 mb-1">优化建议：</p>
+                  {feedback.cross_validation.suggestions.map((s: string, i: number) => (
+                    <p key={i} className="text-xs text-slate-400 leading-relaxed">· {s}</p>
+                  ))}
+                </div>
+              )}
             </div>
           )}
 

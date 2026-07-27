@@ -191,3 +191,179 @@ async def favorite_song(
     db.add(fav)
     await db.commit()
     return FavoriteOut(user_id=user.id, song_id=song_id, created_at=str(fav.created_at))
+
+
+# ── 数据增强与情感分析 ──
+
+@router.post("/{song_id}/enrich")
+async def enrich_song_endpoint(song_id: int, db: AsyncSession = Depends(get_db)):
+    """对单首歌曲进行数据增强（流派、编辑评论等）。"""
+    from app.services.enrich import enrich_song as _enrich
+
+    result = await db.execute(select(Song).where(Song.id == song_id))
+    song = result.scalar_one_or_none()
+    if not song:
+        raise HTTPException(status_code=404, detail="歌曲不存在")
+    try:
+        enriched = await _enrich(db, song, enrich_album=True)
+        await db.commit()
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"数据增强失败: {e}")
+    return {"song_id": song_id, "enriched_fields": list(enriched.keys())}
+
+
+@router.post("/enrich/batch")
+async def batch_enrich_endpoint(limit: int = 50, db: AsyncSession = Depends(get_db)):
+    """批量数据增强。"""
+    from app.services.enrich import batch_enrich
+
+    try:
+        result = await batch_enrich(db, limit)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"批量增强失败: {e}")
+    return result
+
+
+@router.get("/{song_id}/lyrics")
+async def lyrics_endpoint(song_id: int, db: AsyncSession = Depends(get_db)):
+    """获取歌曲歌词（分段 + AI 图片 prompt）。"""
+    from app.services.lyrics import fetch_lyrics, generate_image_prompt
+    from app.models.prediction import AiPrediction
+    from sqlalchemy.orm import joinedload
+
+    result = await db.execute(select(Song).where(Song.id == song_id))
+    song = result.scalar_one_or_none()
+    if not song:
+        raise HTTPException(status_code=404, detail="歌曲不存在")
+
+    # 获取歌词
+    lyrics_data = await fetch_lyrics(song.apple_music_id)
+    segments = lyrics_data.get("segments", [])
+
+    # 获取情绪提示
+    pred_result = await db.execute(
+        select(AiPrediction)
+        .where(AiPrediction.song_id == song_id)
+        .options(joinedload(AiPrediction.emotion_rel))
+        .order_by(AiPrediction.id.desc())
+        .limit(1)
+    )
+    pred = pred_result.scalar_one_or_none()
+    emotion_hint = pred.emotion_rel.name if pred else ""
+
+    # 为每个段落生成 AI 图片 prompt
+    gallery = []
+    for i, segment in enumerate(segments):
+        prompt_data = generate_image_prompt(segment, emotion_hint)
+        gallery.append({
+            "index": i,
+            "lyrics": segment,
+            "image_prompt": prompt_data["prompt"],
+            # 图片 URL 待集成 AI 图片生成 API 后填充
+            "image_url": song.artwork_url if hasattr(song, 'artwork_url') else None,
+        })
+
+    # 提取 artwork_url
+    artwork_url = None
+    if song.raw_meta:
+        attrs = song.raw_meta.get("attributes", song.raw_meta)
+        artwork = attrs.get("artwork", {})
+        if artwork:
+            artwork_url = artwork.get("url", "").replace("{w}", "600").replace("{h}", "600")
+
+    return {
+        "song_id": song_id,
+        "title": song.title,
+        "artist": song.artist,
+        "artwork_url": artwork_url,
+        "emotion": emotion_hint,
+        "raw_lyrics": lyrics_data.get("lyrics", ""),
+        "source": lyrics_data.get("source", ""),
+        "gallery": gallery,
+    }
+
+
+@router.get("/{song_id}/sentiment")
+async def sentiment_analysis_endpoint(song_id: int, db: AsyncSession = Depends(get_db)):
+    """对比编辑评论情感与 AI 情绪预测。"""
+    from app.services.enrich import analyze_editorial_sentiment, compare_sentiment_with_prediction
+    from app.models.prediction import AiPrediction
+    from sqlalchemy.orm import joinedload
+
+    result = await db.execute(select(Song).where(Song.id == song_id))
+    song = result.scalar_one_or_none()
+    if not song:
+        raise HTTPException(status_code=404, detail="歌曲不存在")
+
+    # 获取编辑评论
+    editorial_text = ""
+    if song.raw_meta:
+        enriched = song.raw_meta.get("_enriched", {})
+        editorial_text = enriched.get("editorial_notes", "")
+        if not editorial_text:
+            # fallback: 从 raw_meta 直接提取
+            editorial_text = (
+                song.raw_meta.get("editorialNotes", {}).get("standard", "")
+                or song.raw_meta.get("editorialNotes", {}).get("short", "")
+            )
+
+    editorial_scores = analyze_editorial_sentiment(editorial_text) if editorial_text else {}
+
+    # 获取 AI 预测
+    pred_result = await db.execute(
+        select(AiPrediction)
+        .where(AiPrediction.song_id == song_id)
+        .options(joinedload(AiPrediction.emotion_rel))
+        .order_by(AiPrediction.id.desc())
+        .limit(1)
+    )
+    pred = pred_result.scalar_one_or_none()
+
+    if not pred:
+        return {
+            "song_id": song_id,
+            "editorial_scores": editorial_scores,
+            "ai_prediction": None,
+            "comparison": None,
+            "message": "尚未进行 AI 分析",
+        }
+
+    comparison = compare_sentiment_with_prediction(
+        editorial_scores, pred.emotion_rel.name, pred.confidence
+    )
+
+    return {
+        "song_id": song_id,
+        "editorial_scores": editorial_scores,
+        "ai_prediction": {
+            "emotion": pred.emotion_rel.name,
+            "confidence": pred.confidence,
+        },
+        "comparison": comparison,
+    }
+
+
+# ── 外部反馈与模型优化 ──
+
+@router.post("/{song_id}/feedback")
+async def external_feedback_endpoint(song_id: int, db: AsyncSession = Depends(get_db)):
+    """从 B 站等外部平台采集风格数据，与 AI 预测交叉验证。"""
+    from app.services.feedback import collect_external_feedback
+
+    try:
+        feedback = await collect_external_feedback(db, song_id, force=True)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"外部反馈采集失败: {e}")
+    return feedback
+
+
+@router.post("/feedback/batch")
+async def batch_feedback_endpoint(limit: int = 20, db: AsyncSession = Depends(get_db)):
+    """批量采集外部反馈。"""
+    from app.services.feedback import batch_feedback
+
+    try:
+        result = await batch_feedback(db, limit)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"批量反馈失败: {e}")
+    return result

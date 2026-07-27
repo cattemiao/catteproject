@@ -43,6 +43,10 @@ export const songsApi = {
   getReview: (id: number) => client.get<ReviewData>(`/songs/${id}/review`),
   getAlbumTracks: (songId: number) =>
     client.get(`/songs/${songId}/album-tracks`),
+  getLyrics: (songId: number) =>
+    client.get(`/songs/${songId}/lyrics`),
+  getFeedback: (songId: number) =>
+    client.post(`/songs/${songId}/feedback`),
 }
 
 export const emotionApi = {

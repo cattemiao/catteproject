@@ -3,8 +3,10 @@ from __future__ import annotations
 
 import logging
 
+import asyncio
+
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -31,6 +33,34 @@ ARTIST_BIOS: dict[str, str] = {
     "taylor swift": "Taylor Swift，美国创作型女歌手，从乡村到流行音乐的标志性转型代表，Billboard 多次年度艺人。",
     "ed sheeran": "Ed Sheeran，英国创作型男歌手，以吉他弹奏和真挚歌词闻名，代表作《Shape of You》《Perfect》。",
 }
+
+
+async def _background_enrich(song_ids: list[int]) -> None:
+    """后台任务：为新同步的歌曲采集 B 站风格数据 + Apple Music 元数据。"""
+    from app.database import async_session_factory
+    from app.services.feedback import collect_external_feedback
+    from app.services.enrich import enrich_song
+    from app.models.song import Song
+    from sqlalchemy import select
+
+    async with async_session_factory() as bg_db:
+        for song_id in song_ids:
+            try:
+                result = await bg_db.execute(select(Song).where(Song.id == song_id))
+                song = result.scalar_one_or_none()
+                if song:
+                    await enrich_song(bg_db, song, enrich_album=True)
+                    await bg_db.commit()
+            except Exception:
+                pass
+
+            try:
+                await collect_external_feedback(bg_db, song_id, force=True)
+                await bg_db.commit()
+            except Exception:
+                pass
+
+            await asyncio.sleep(1.5)  # B 站请求间隔
 
 
 async def _get_client(user: User) -> AppleMusicClient:
@@ -89,12 +119,14 @@ async def recent_played(
     limit: int = Query(20, ge=1, le=20),
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
+    background_tasks: BackgroundTasks = None,
 ):
-    """同步最近播放记录（歌曲 + 专辑均入库）。"""
+    """同步最近播放记录（歌曲 + 专辑均入库）+ 后台采集外部风格数据。"""
     client = await _get_client(user)
     data = await client.get_recent_played(limit=limit)
 
     songs = []
+    new_song_ids: list[int] = []
     for item in data.get("data", []):
         attrs = item.get("attributes", {})
         item_type = item.get("type", "song")
@@ -120,6 +152,14 @@ async def recent_played(
             "type": item_type,
             "artist_bio": getattr(song, "artist_bio", None),
         })
+        new_song_ids.append(song.id)
+
+    await db.commit()
+
+    # 后台异步采集 B 站风格数据 + Apple Music 元数据增强
+    if new_song_ids and background_tasks:
+        background_tasks.add_task(_background_enrich, new_song_ids)
+
     return {"items": songs}
 
 

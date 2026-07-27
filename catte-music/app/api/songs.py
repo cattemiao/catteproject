@@ -224,65 +224,6 @@ async def batch_enrich_endpoint(limit: int = 50, db: AsyncSession = Depends(get_
     return result
 
 
-@router.get("/{song_id}/lyrics")
-async def lyrics_endpoint(song_id: int, db: AsyncSession = Depends(get_db)):
-    """获取歌曲歌词（分段 + AI 图片 prompt）。"""
-    from app.services.lyrics import fetch_lyrics, generate_image_prompt
-    from app.models.prediction import AiPrediction
-    from sqlalchemy.orm import joinedload
-
-    result = await db.execute(select(Song).where(Song.id == song_id))
-    song = result.scalar_one_or_none()
-    if not song:
-        raise HTTPException(status_code=404, detail="歌曲不存在")
-
-    # 获取歌词
-    lyrics_data = await fetch_lyrics(song.apple_music_id)
-    segments = lyrics_data.get("segments", [])
-
-    # 获取情绪提示
-    pred_result = await db.execute(
-        select(AiPrediction)
-        .where(AiPrediction.song_id == song_id)
-        .options(joinedload(AiPrediction.emotion_rel))
-        .order_by(AiPrediction.id.desc())
-        .limit(1)
-    )
-    pred = pred_result.scalar_one_or_none()
-    emotion_hint = pred.emotion_rel.name if pred else ""
-
-    # 为每个段落生成 AI 图片 prompt
-    gallery = []
-    for i, segment in enumerate(segments):
-        prompt_data = generate_image_prompt(segment, emotion_hint)
-        gallery.append({
-            "index": i,
-            "lyrics": segment,
-            "image_prompt": prompt_data["prompt"],
-            # 图片 URL 待集成 AI 图片生成 API 后填充
-            "image_url": song.artwork_url if hasattr(song, 'artwork_url') else None,
-        })
-
-    # 提取 artwork_url
-    artwork_url = None
-    if song.raw_meta:
-        attrs = song.raw_meta.get("attributes", song.raw_meta)
-        artwork = attrs.get("artwork", {})
-        if artwork:
-            artwork_url = artwork.get("url", "").replace("{w}", "600").replace("{h}", "600")
-
-    return {
-        "song_id": song_id,
-        "title": song.title,
-        "artist": song.artist,
-        "artwork_url": artwork_url,
-        "emotion": emotion_hint,
-        "raw_lyrics": lyrics_data.get("lyrics", ""),
-        "source": lyrics_data.get("source", ""),
-        "gallery": gallery,
-    }
-
-
 @router.get("/{song_id}/sentiment")
 async def sentiment_analysis_endpoint(song_id: int, db: AsyncSession = Depends(get_db)):
     """对比编辑评论情感与 AI 情绪预测。"""

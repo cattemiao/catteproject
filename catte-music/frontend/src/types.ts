@@ -60,6 +60,12 @@ export interface FavoriteOut {
 }
 
 // 多源共识反馈
+export interface SampleComment {
+  content: string
+  like: number
+  emotion: string
+}
+
 export interface SourceVote {
   source: string
   emotion: string
@@ -91,9 +97,9 @@ export interface AutoCorrection {
 }
 
 export interface FeedbackSources {
-  bilibili_styles: Record<string, any> | null
-  bilibili_comments: Record<string, any> | null
-  netease: Record<string, any> | null
+  bilibili_styles: { primary_style?: string; style_counts?: Record<string, number> } & Record<string, any> | null
+  bilibili_comments: { primary_emotion?: string; sample_comments?: SampleComment[] } & Record<string, any> | null
+  netease: { primary_emotion?: string; sample_comments?: SampleComment[] } & Record<string, any> | null
   editorial_scores: Record<string, number> | null
   ai_prediction: Record<string, any> | null
 }

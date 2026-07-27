@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
-import { Disc, Globe, Heart, Image, Music, Pause, Play, Sparkles } from 'lucide-react'
+import { useParams } from 'react-router-dom'
+import { Disc, Globe, Heart, Music, Pause, Play, Sparkles } from 'lucide-react'
 import { emotionApi, songsApi } from '../api/client'
 import ParticleBg from '../components/ParticleBg'
 import EmotionRadar from '../components/EmotionRadar'
@@ -366,13 +366,7 @@ export default function SongDetail() {
 
           {/* 数据增强按钮组 */}
           <div className="flex flex-wrap items-center gap-2 mt-4">
-            <Link
-              to={`/song/${id}/lyrics`}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs border border-neon-cyan/30 hover:border-neon-cyan/60 transition-all text-slate-300 hover:text-neon-cyan"
-            >
-              <Image className="w-3.5 h-3.5" />
-              AI 歌词配图
-            </Link>
+            
             <button
               onClick={handleFeedback}
               disabled={feedbackLoading}
@@ -456,6 +450,44 @@ export default function SongDetail() {
                   </p>
                 </div>
               )}
+
+              {/* 评论典例：B站 */}
+              {(() => {
+                const samples = feedback.sources.bilibili_comments?.sample_comments
+                if (!samples || samples.length === 0) return null
+                return (
+                  <div>
+                    <p className="text-xs text-slate-500 mb-1">B站评论典例：</p>
+                    <div className="space-y-1.5">
+                      {samples.map((c, i) => (
+                        <div key={i} className="text-xs p-2 rounded bg-neon-cyan/5 border border-neon-cyan/10">
+                          <p className="text-slate-300 leading-relaxed">「{c.content}」</p>
+                          <p className="text-slate-600 mt-0.5">👍 {c.like} · 情绪：{c.emotion}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )
+              })()}
+
+              {/* 评论典例：网易云 */}
+              {(() => {
+                const samples = feedback.sources.netease?.sample_comments
+                if (!samples || samples.length === 0) return null
+                return (
+                  <div>
+                    <p className="text-xs text-slate-500 mb-1">网易云评论典例：</p>
+                    <div className="space-y-1.5">
+                      {samples.map((c, i) => (
+                        <div key={i} className="text-xs p-2 rounded bg-neon-pink/5 border border-neon-pink/10">
+                          <p className="text-slate-300 leading-relaxed">「{c.content}」</p>
+                          <p className="text-slate-600 mt-0.5">👍 {c.like} · 情绪：{c.emotion}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )
+              })()}
 
               {/* B站 & 网易云 源数据摘要 */}
               {feedback.sources && (

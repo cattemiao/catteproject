@@ -393,16 +393,33 @@ async def get_bilibili_comment_consensus(
             "confidence": 0,
             "scores": {},
             "comments_found": len(all_comments),
+            "sample_comments": [],
             "source": "bilibili_comments",
         }
 
     primary = max(scores, key=scores.get)
     confidence = scores[primary]
 
+    # 挑选与主情绪契合的高赞评论作为典例
+    primary_words = COMMENT_EMOTION_WORDS.get(primary, [])
+    matched: list[dict] = []
+    for c in all_comments:
+        text = c.get("content", "")
+        if any(w in text for w in primary_words):
+            matched.append({
+                "content": text,
+                "like": c.get("like", 0),
+                "emotion": primary,
+            })
+    # 按点赞排序，取前 5 条
+    matched.sort(key=lambda x: -x.get("like", 0))
+    sample_comments = matched[:5]
+
     return {
         "primary_emotion": primary,
         "confidence": round(confidence, 3),
         "scores": {k: round(v, 3) for k, v in sorted(scores.items(), key=lambda x: -x[1])},
         "comments_found": len(all_comments),
+        "sample_comments": sample_comments,
         "source": "bilibili_comments",
     }

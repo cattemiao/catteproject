@@ -127,8 +127,8 @@ async def get_hot_comments(
     netease_song_id: str,
     limit: int = 20,
     timeout: float = 15.0,
-) -> list[str]:
-    """获取网易云歌曲热门评论文本。"""
+) -> list[dict[str, Any]]:
+    """获取网易云歌曲热门评论（含点赞数）。"""
     headers = {
         "User-Agent": random_user_agent(),
         "Referer": "https://music.163.com/",
@@ -153,7 +153,10 @@ async def get_hot_comments(
     for c in hot_comments[:limit]:
         content = c.get("content", "")
         if content:
-            comments.append(re.sub(r"<[^>]+>", "", content))
+            comments.append({
+                "content": re.sub(r"<[^>]+>", "", content),
+                "like": c.get("likedCount", 0) or c.get("likeCount", 0),
+            })
 
     return comments
 
@@ -169,9 +172,9 @@ def analyze_tags(tags: list[str]) -> dict[str, float]:
     return {k: min(v, 1.0) for k, v in scores.items()}
 
 
-def analyze_comment_sentiment(comments: list[str]) -> dict[str, float]:
+def analyze_comment_sentiment(comments: list[dict[str, Any]]) -> dict[str, float]:
     """分析评论中的情绪关键词。"""
-    text = " ".join(comments)
+    text = " ".join(c.get("content", "") for c in comments)
     scores: dict[str, float] = {}
 
     for emotion, keywords in COMMENT_KEYWORDS.items():
@@ -210,6 +213,7 @@ async def get_netease_consensus(
             "tag_scores": {},
             "comment_scores": {},
             "comments_found": 0,
+            "sample_comments": [],
             "source": "netease",
             "has_data": False,
         }
@@ -240,6 +244,7 @@ async def get_netease_consensus(
             "tag_scores": tag_scores,
             "comment_scores": comment_scores,
             "comments_found": len(comments),
+            "sample_comments": [],
             "source": "netease",
             "has_data": False,
         }
@@ -249,12 +254,27 @@ async def get_netease_consensus(
     confidence = combined[primary]
     confidence = min(confidence, 1.0)
 
+    # 挑选与主情绪契合的高赞评论作为典例
+    primary_words = COMMENT_KEYWORDS.get(primary, [])
+    matched: list[dict] = []
+    for c in comments:
+        text = c.get("content", "")
+        if any(w in text for w in primary_words):
+            matched.append({
+                "content": text,
+                "like": c.get("like", 0),
+                "emotion": primary,
+            })
+    matched.sort(key=lambda x: -x.get("like", 0))
+    sample_comments = matched[:5]
+
     return {
         "primary_emotion": primary,
         "confidence": round(confidence, 3),
         "tag_scores": tag_scores,
         "comment_scores": comment_scores,
         "comments_found": len(comments),
+        "sample_comments": sample_comments,
         "all_scores": {k: round(v, 3) for k, v in sorted(combined.items(), key=lambda x: -x[1])},
         "source": "netease",
         "has_data": True,

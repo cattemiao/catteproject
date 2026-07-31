@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Disc, Music, TrendingUp, Sparkles } from 'lucide-react'
+import { Disc, Music, TrendingUp, Sparkles, Compass } from 'lucide-react'
 import { songsApi, appleMusicApi, recommendApi, authApi } from '../api/client'
 import ParticleBg from '../components/ParticleBg'
-import type { SongOut } from '../types'
+import type { SongOut, StyleRecommendResult } from '../types'
 
 // MusicKit JS 全局类型
 declare global {
@@ -15,12 +15,14 @@ declare global {
 export default function Home() {
   const [songs, setSongs] = useState<SongOut[]>([])
   const [recs, setRecs] = useState<SongOut[]>([])
+  const [styleRecs, setStyleRecs] = useState<StyleRecommendResult | null>(null)
   const [syncing, setSyncing] = useState(false)
   const [syncMsg, setSyncMsg] = useState('')
 
   useEffect(() => {
     songsApi.list({ size: 12 }).then(({ data }) => setSongs(data.items)).catch(() => {})
     recommendApi.get(6).then(({ data }) => setRecs(data)).catch(() => {})
+    recommendApi.getStyle(6).then(({ data }) => setStyleRecs(data)).catch(() => {})
   }, [])
 
   const syncAppleMusic = async () => {
@@ -104,6 +106,41 @@ export default function Home() {
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
             {recs.map((song) => (
               <SongCard key={song.id} song={song} />
+            ))}
+          </div>
+        </section>
+      )}
+
+      {/* 风格相似推荐区 */}
+      {styleRecs && styleRecs.recommendations.length > 0 && (
+        <section className="mb-10">
+          <h2 className="font-display text-xl font-bold mb-2 flex items-center gap-2">
+            <Compass className="w-5 h-5 text-neon-purple" />
+            风格相似推荐
+          </h2>
+          {styleRecs.preference && (
+            <p className="text-sm text-slate-400 mb-4">
+              你偏爱风格：
+              {styleRecs.preference.top_genres.map(([genre, count]) => (
+                <span key={genre} className="ml-1.5 inline-block px-2 py-0.5 rounded bg-neon-purple/10 text-neon-purple text-xs">
+                  {genre} ×{count}
+                </span>
+              ))}
+              {styleRecs.preference.top_emotion && (
+                <span className="ml-1.5 inline-block px-2 py-0.5 rounded bg-neon-pink/10 text-neon-pink text-xs">
+                  {styleRecs.preference.top_emotion}
+                </span>
+              )}
+            </p>
+          )}
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
+            {styleRecs.recommendations.map(({ song, reason }) => (
+              <div key={song.id} className="flex flex-col">
+                <SongCard song={song} />
+                <p className="text-xs text-slate-500 mt-1.5 leading-relaxed line-clamp-2">
+                  {reason}
+                </p>
+              </div>
             ))}
           </div>
         </section>

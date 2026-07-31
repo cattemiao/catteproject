@@ -1,5 +1,5 @@
 import axios from 'axios'
-import type { PredictionData, RadarData, ReviewData, SongListOut, SongOut, PreviewData } from '../types'
+import type { PredictionData, RadarData, ReviewData, SongListOut, SongOut, PreviewData, StyleRecommendResult } from '../types'
 
 const client = axios.create({ baseURL: '/api' })
 
@@ -63,6 +63,7 @@ export const appleMusicApi = {
 
 export const recommendApi = {
   get: (limit = 6) => client.get('/recommend', { params: { limit } }),
+  getStyle: (limit = 6) => client.get<StyleRecommendResult>('/recommend/style', { params: { limit } }),
 }
 
 export default client

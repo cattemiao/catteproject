@@ -110,3 +110,21 @@ export interface FeedbackData {
   auto_correction: AutoCorrection | null
   updated_at: string
 }
+
+// 风格推荐
+export interface StyleRecommendation {
+  song: SongOut
+  reason: string
+  matched_genres: string[]
+  matched_emotion: string | null
+  score: number
+}
+
+export interface StyleRecommendResult {
+  preference: {
+    top_genres: [string, number][]
+    top_emotion: string | null
+    fav_count: number
+  } | null
+  recommendations: StyleRecommendation[]
+}

@@ -1,6 +1,7 @@
 import { type ReactNode } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
-import { Home, Heart, LogOut, Music } from 'lucide-react'
+import { Home, Heart, LogOut } from 'lucide-react'
+import logo from '../../logo.png'
 
 export default function Layout({ children }: { children: ReactNode }) {
   const navigate = useNavigate()
@@ -21,7 +22,7 @@ export default function Layout({ children }: { children: ReactNode }) {
       {/* 顶部导航 */}
       <header className="glass sticky top-0 z-50 px-4 sm:px-8 py-3 flex items-center justify-between">
         <Link to="/" className="flex items-center gap-2">
-          <Music className="w-6 h-6 text-neon-cyan" />
+          <img src={logo} alt="Catte Music" className="h-8 w-8 object-contain" />
           <span className="font-display font-bold text-lg text-gradient">Catte Music</span>
         </Link>
         <nav className="flex items-center gap-1 sm:gap-2">

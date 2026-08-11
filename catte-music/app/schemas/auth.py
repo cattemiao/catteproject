@@ -21,5 +21,6 @@ class UserOut(BaseModel):
     id: int
     username: str
     has_apple_music: bool = False
+    has_netease: bool = False
 
     model_config = {"from_attributes": True}

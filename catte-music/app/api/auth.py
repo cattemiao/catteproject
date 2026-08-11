@@ -30,7 +30,7 @@ async def register(data: UserRegister, db: AsyncSession = Depends(get_db)):
     )
     db.add(user)
     await db.flush()
-    return UserOut(id=user.id, username=user.username, has_apple_music=False)
+    return UserOut(id=user.id, username=user.username, has_apple_music=False, has_netease=False)
 
 
 @router.post("/login", response_model=Token)
@@ -50,6 +50,7 @@ async def me(user: User = Depends(get_current_user)):
         id=user.id,
         username=user.username,
         has_apple_music=bool(user.apple_music_token),
+        has_netease=bool(user.netease_cookie),
     )
 
 

@@ -25,19 +25,26 @@ def _song_to_out(song: Song) -> SongOut:
     artwork_url = None
     if song.raw_meta:
         try:
-            # 单曲：attributes 下；专辑：顶层
-            attrs = song.raw_meta.get("attributes", song.raw_meta)
-            previews = attrs.get("previews", [])
-            if previews:
-                preview_url = previews[0].get("url")
-            artwork = attrs.get("artwork", {})
-            if artwork:
-                artwork_url = artwork.get("url", "").replace("{w}", "600").replace("{h}", "600")
+            if song.platform == "netease":
+                # 网易云：封面在 raw_meta.cover_url
+                artwork_url = song.raw_meta.get("cover_url")
+                preview_url = song.raw_meta.get("preview_url")
+            else:
+                # Apple Music：单曲 attributes 下；专辑顶层
+                attrs = song.raw_meta.get("attributes", song.raw_meta)
+                previews = attrs.get("previews", [])
+                if previews:
+                    preview_url = previews[0].get("url")
+                artwork = attrs.get("artwork", {})
+                if artwork:
+                    artwork_url = artwork.get("url", "").replace("{w}", "600").replace("{h}", "600")
         except (AttributeError, KeyError):
             pass
     return SongOut(
         id=song.id,
         apple_music_id=song.apple_music_id,
+        platform=getattr(song, "platform", "apple") or "apple",
+        netease_id=getattr(song, "netease_id", None),
         title=song.title,
         artist=song.artist,
         album=song.album,
@@ -55,10 +62,15 @@ async def list_songs(
     q: str | None = Query(None, description="搜索关键词"),
     page: int = Query(1, ge=1),
     size: int = Query(20, ge=1, le=100),
+    platform: str | None = Query(None, description="apple/netease，默认全部"),
     db: AsyncSession = Depends(get_db),
 ):
     query = select(Song)
     count_query = select(func.count()).select_from(Song)
+
+    if platform:
+        query = query.where(Song.platform == platform)
+        count_query = count_query.where(Song.platform == platform)
 
     if q:
         query = query.where(Song.title.ilike(f"%{q}%") | Song.artist.ilike(f"%{q}%"))

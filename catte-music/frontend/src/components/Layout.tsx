@@ -1,6 +1,6 @@
 import { type ReactNode } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
-import { Home, Heart, LogOut } from 'lucide-react'
+import { Home, Heart, LogOut, Music, Podcast } from 'lucide-react'
 import logo from '../../logo.png'
 
 export default function Layout({ children }: { children: ReactNode }) {
@@ -17,6 +17,8 @@ export default function Layout({ children }: { children: ReactNode }) {
     { to: '/favorites', icon: Heart, label: '收藏' },
   ]
 
+  const isNetease = location.pathname.startsWith('/netease')
+
   return (
     <div className="min-h-[100dvh] flex flex-col">
       {/* 顶部导航 */}
@@ -26,6 +28,31 @@ export default function Layout({ children }: { children: ReactNode }) {
           <span className="font-display font-bold text-lg text-gradient">Catte Music</span>
         </Link>
         <nav className="flex items-center gap-1 sm:gap-2">
+          {/* 平台切换 */}
+          <div className="flex items-center gap-1 p-1 rounded-xl bg-white/5 mr-1 sm:mr-2">
+            <Link
+              to="/"
+              className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                !isNetease
+                  ? 'bg-neon-purple/20 text-white shadow-[0_0_12px_rgba(168,85,247,0.3)]'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              <Music className="w-3.5 h-3.5 text-neon-cyan" />
+              <span className="hidden sm:inline">Apple Music</span>
+            </Link>
+            <Link
+              to="/netease"
+              className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                isNetease
+                  ? 'bg-red-500/20 text-white shadow-[0_0_12px_rgba(239,68,68,0.3)]'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              <Podcast className="w-3.5 h-3.5 text-red-400" />
+              <span className="hidden sm:inline">网易云</span>
+            </Link>
+          </div>
           {navItems.map(({ to, icon: Icon, label }) => (
             <Link
               key={to}

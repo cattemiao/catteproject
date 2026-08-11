@@ -1,12 +1,14 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Music, Sparkles } from 'lucide-react'
+import { Music, Sparkles, Podcast } from 'lucide-react'
 import { authApi } from '../api/client'
 
 type Mode = 'login' | 'register'
+type Platform = 'apple' | 'netease'
 
 export default function Login() {
   const navigate = useNavigate()
+  const [platform, setPlatform] = useState<Platform>('apple')
   const [mode, setMode] = useState<Mode>('login')
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
@@ -23,7 +25,7 @@ export default function Login() {
       }
       const { data } = await authApi.login(username, password)
       localStorage.setItem('catte_token', data.access_token)
-      navigate('/')
+      navigate(platform === 'netease' ? '/netease' : '/')
     } catch (err: unknown) {
       const msg =
         (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail ||
@@ -54,6 +56,34 @@ export default function Login() {
             <Sparkles className="w-3.5 h-3.5 text-neon-amber" />
             AI 音乐情绪可视化与探索平台
           </p>
+        </div>
+
+        {/* 平台选择：Apple Music / 网易云 二选一 */}
+        <div className="grid grid-cols-2 gap-2 mb-4">
+          <button
+            onClick={() => setPlatform('apple')}
+            className={`flex flex-col items-center gap-1.5 px-3 py-3 rounded-xl border transition-all ${
+              platform === 'apple'
+                ? 'bg-neon-purple/20 border-neon-purple/60 shadow-[0_0_15px_rgba(168,85,247,0.3)]'
+                : 'bg-white/5 border-white/10 hover:border-neon-purple/30'
+            }`}
+          >
+            <Music className="w-5 h-5 text-neon-cyan" />
+            <span className="text-sm font-medium text-white">Apple Music</span>
+            <span className="text-[10px] text-slate-500">Apple ID 授权同步</span>
+          </button>
+          <button
+            onClick={() => setPlatform('netease')}
+            className={`flex flex-col items-center gap-1.5 px-3 py-3 rounded-xl border transition-all ${
+              platform === 'netease'
+                ? 'bg-red-500/20 border-red-500/60 shadow-[0_0_15px_rgba(239,68,68,0.3)]'
+                : 'bg-white/5 border-white/10 hover:border-red-500/30'
+            }`}
+          >
+            <Podcast className="w-5 h-5 text-red-400" />
+            <span className="text-sm font-medium text-white">网易云音乐</span>
+            <span className="text-[10px] text-slate-500">扫码授权同步</span>
+          </button>
         </div>
 
         {/* 切换标签 */}

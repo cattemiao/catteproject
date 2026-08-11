@@ -48,7 +48,8 @@ async def _background_enrich(song_ids: list[int]) -> None:
             try:
                 result = await bg_db.execute(select(Song).where(Song.id == song_id))
                 song = result.scalar_one_or_none()
-                if song:
+                # Apple Music 歌曲才做 catalog 增强；网易云歌曲跳过
+                if song and getattr(song, "platform", "apple") == "apple":
                     await enrich_song(bg_db, song, enrich_album=True)
                     await bg_db.commit()
             except Exception:

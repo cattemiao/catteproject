@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import analyze, apple_music, auth, emotions, recommend, songs
+from app.api import analyze, apple_music, auth, emotions, netease, recommend, songs
 from app.config import settings
 from app.database import init_db
 
@@ -53,3 +53,4 @@ app.include_router(analyze.router)
 app.include_router(emotions.router)
 app.include_router(recommend.router)
 app.include_router(apple_music.router)
+app.include_router(netease.router)

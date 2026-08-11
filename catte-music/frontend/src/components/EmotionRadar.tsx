@@ -5,6 +5,7 @@ import type { RadarDimension } from '../types'
 interface Props {
   dimensions: RadarDimension
   color: string
+  maxSize?: number
 }
 
 const LABELS: { key: keyof RadarDimension; label: string }[] = [
@@ -17,7 +18,7 @@ const LABELS: { key: keyof RadarDimension; label: string }[] = [
   { key: 'prosody', label: '韵律' },
 ]
 
-export default function EmotionRadar({ dimensions, color }: Props) {
+export default function EmotionRadar({ dimensions, color, maxSize = 380 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
   const targetValuesRef = useRef(LABELS.map(({ key }) => dimensions[key] ?? 50))
 
@@ -117,7 +118,7 @@ export default function EmotionRadar({ dimensions, color }: Props) {
       }
 
       p.windowResized = () => {
-        const newSize = Math.min(container.offsetWidth, 380)
+        const newSize = Math.min(container.offsetWidth, maxSize)
         p.resizeCanvas(newSize, newSize)
         cx = newSize / 2
         cy = newSize / 2
@@ -127,9 +128,9 @@ export default function EmotionRadar({ dimensions, color }: Props) {
 
     const p5Instance = new p5(sketch, container)
     return () => p5Instance.remove()
-  }, [dimensions, color])
+  }, [dimensions, color, maxSize])
 
-  return <div ref={containerRef} className="mx-auto" style={{ width: 380, maxWidth: '100%' }} />
+  return <div ref={containerRef} className="mx-auto" style={{ width: maxSize, maxWidth: '100%' }} />
 }
 
 function hexToRgba(hex: string, _: number): [number, number, number] {

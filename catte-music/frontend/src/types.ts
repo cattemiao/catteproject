@@ -1,6 +1,8 @@
 export interface SongOut {
   id: number
   apple_music_id: string
+  platform?: string
+  netease_id?: string | null
   title: string
   artist: string
   album?: string | null

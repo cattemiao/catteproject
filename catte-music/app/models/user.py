@@ -5,6 +5,7 @@ from sqlalchemy import DateTime, ForeignKey, Integer, String, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
+from app.models.song import JSONType
 
 
 class User(Base):
@@ -14,6 +15,9 @@ class User(Base):
     username: Mapped[str] = mapped_column(String(64), unique=True, index=True)
     password_hash: Mapped[str] = mapped_column(String(256))
     apple_music_token: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+    netease_cookie: Mapped[str | None] = mapped_column(String(2048), nullable=True)
+    netease_uid: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    netease_profile: Mapped[dict | None] = mapped_column(JSONType, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

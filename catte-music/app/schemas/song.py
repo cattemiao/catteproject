@@ -5,6 +5,8 @@ from pydantic import BaseModel
 class SongOut(BaseModel):
     id: int
     apple_music_id: str
+    platform: str = "apple"  # apple/netease
+    netease_id: str | None = None
     title: str
     artist: str
     album: str | None = None

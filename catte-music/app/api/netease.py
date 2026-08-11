@@ -1,0 +1,158 @@
+"""网易云音乐路由：二维码登录、最近播放同步、搜索。"""
+import logging
+
+from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.api.deps import get_current_user
+from app.api.songs import _song_to_out
+from app.database import get_db
+from app.models.song import Song
+from app.models.user import User
+from app.schemas.song import SongOut
+from app.services.netease import client as netease_client
+
+logger = logging.getLogger(__name__)
+
+router = APIRouter(prefix="/api/netease", tags=["网易云"])
+
+
+@router.post("/qr")
+async def create_qr():
+    """生成网易云扫码登录二维码。"""
+    return await netease_client.create_qr_key()
+
+
+@router.get("/qr/{key}")
+async def check_qr(key: str, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    """轮询扫码状态。code=803 表示成功，同时把 cookie 保存到用户。"""
+    # 用户可能已有 cookie，带上一起请求
+    prev = netease_client.parse_cookie_str(user.netease_cookie or "") if user.netease_cookie else None
+    result = await netease_client.check_qr_status(key, prev_cookies=prev)
+
+    if result.get("code") == netease_client.QR_SUCCESS and result.get("cookies"):
+        # 保存登录态
+        cookie_str = "; ".join(f"{k}={v}" for k, v in result["cookies"].items())
+        user.netease_cookie = cookie_str
+        profile = result.get("profile", {})
+        user.netease_profile = profile
+        user.netease_uid = str(profile.get("userId") or "") or None
+        await db.commit()
+        result["nickname"] = profile.get("nickname", "")
+        result["avatar_url"] = profile.get("avatarUrl", "")
+
+    # 不再返回完整 cookie 给前端，避免泄露
+    result.pop("cookies", None)
+    return result
+
+
+@router.get("/status")
+async def status(user: User = Depends(get_current_user)):
+    """当前用户网易云绑定状态。"""
+    if not user.netease_cookie:
+        return {"bound": False}
+    profile = user.netease_profile or {}
+    return {
+        "bound": True,
+        "nickname": profile.get("nickname", ""),
+        "avatar_url": profile.get("avatarUrl", ""),
+        "uid": user.netease_uid,
+    }
+
+
+@router.post("/sync")
+async def sync_recent(
+    limit: int = Query(10, ge=1, le=20),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """同步网易云最近播放记录到本地库，并触发后台情绪分析。"""
+    if not user.netease_cookie:
+        raise HTTPException(status_code=401, detail="尚未绑定网易云账号")
+    if not user.netease_uid:
+        raise HTTPException(status_code=400, detail="缺少网易云用户信息，请重新扫码登录")
+
+    cookies = netease_client.parse_cookie_str(user.netease_cookie)
+    try:
+        songs_data = await netease_client.get_recent_played(cookies, int(user.netease_uid), limit=limit)
+    except Exception as exc:
+        logger.warning("网易云最近播放获取失败: %s", exc)
+        raise HTTPException(status_code=502, detail="网易云接口请求失败，可能是登录已过期，请重新扫码")
+
+    created = []
+    for item in songs_data:
+        song_id = str(item.get("netease_id", ""))
+        if not song_id:
+            continue
+        # 去重：netease_id 已存在则跳过
+        exists = await db.execute(select(Song).where(Song.platform == "netease", Song.netease_id == song_id))
+        if exists.scalar_one_or_none():
+            continue
+
+        raw_meta = {
+            **item.get("raw", {}),
+            "cover_url": item.get("cover_url", ""),
+            "preview_url": item.get("preview_url", ""),
+        }
+        song = Song(
+            apple_music_id=f"netese-{song_id}",  # 占位保持唯一
+            platform="netease",
+            netease_id=song_id,
+            title=item.get("title", "")[:256],
+            artist=item.get("artist", "")[:256],
+            album=(item.get("album") or "")[:256],
+            duration_ms=item.get("duration_ms"),
+            type="song",
+            raw_meta=raw_meta,
+        )
+        db.add(song)
+        await db.flush()
+        created.append(song)
+
+    await db.commit()
+
+    # 后台触发情绪分析与多源评价（与 Apple Music 同步流程一致）
+    if created:
+        from app.api.apple_music import _background_enrich
+
+        await _background_enrich([s.id for s in created])
+
+    return {
+        "synced": len(created),
+        "total_in_db": len(created) + len(songs_data),
+        "songs": [_song_to_out(s) for s in created],
+    }
+
+
+@router.get("/search", response_model=list[SongOut])
+async def search(
+    q: str = Query(..., min_length=1),
+    limit: int = Query(10, ge=1, le=30),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """搜索网易云歌曲并入库。"""
+    results = await netease_client.search_songs(q, limit=limit)
+    saved = []
+    for item in results:
+        song_id = str(item.get("netease_id", ""))
+        exists = await db.execute(select(Song).where(Song.platform == "netease", Song.netease_id == song_id))
+        song = exists.scalar_one_or_none()
+        if not song:
+            song = Song(
+                apple_music_id=f"netese-{song_id}",
+                platform="netease",
+                netease_id=song_id,
+                title=item.get("title", "")[:256],
+                artist=item.get("artist", "")[:256],
+                album=(item.get("album") or "")[:256],
+                duration_ms=item.get("duration_ms"),
+                type="song",
+                raw_meta={**item.get("raw", {}), "cover_url": item.get("cover_url", ""), "preview_url": ""},
+            )
+            db.add(song)
+            await db.flush()
+        saved.append(song)
+    await db.commit()
+    return [_song_to_out(s) for s in saved]

@@ -35,7 +35,7 @@ export const authApi = {
 }
 
 export const songsApi = {
-  list: (params?: { q?: string; page?: number; size?: number }) =>
+  list: (params?: { q?: string; page?: number; size?: number; platform?: string }) =>
     client.get<SongListOut>('/songs', { params }),
   get: (id: number) => client.get<SongOut>(`/songs/${id}`),
   favorite: (id: number) => client.post(`/songs/${id}/favorite`),
@@ -59,6 +59,15 @@ export const appleMusicApi = {
   recent: (limit = 10) => client.get('/apple-music/recent', { params: { limit } }),
   heavyRotation: (limit = 10) => client.get('/apple-music/heavy-rotation', { params: { limit } }),
   search: (q: string, limit = 10) => client.get('/apple-music/search', { params: { q, limit } }),
+}
+
+export const neteaseApi = {
+  createQr: () => client.post<{ key: string; content: string; error?: string }>('/netease/qr'),
+  checkQr: (key: string) =>
+    client.get<{ code: number; message: string; nickname?: string; avatar_url?: string }>(`/netease/qr/${key}`),
+  status: () => client.get<{ bound: boolean; nickname?: string; avatar_url?: string; uid?: string }>('/netease/status'),
+  syncRecent: (limit = 10) => client.post(`/netease/sync`, null, { params: { limit } }),
+  search: (q: string, limit = 10) => client.get('/netease/search', { params: { q, limit } }),
 }
 
 export const recommendApi = {

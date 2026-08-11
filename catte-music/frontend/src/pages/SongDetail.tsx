@@ -1,9 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { useParams } from 'react-router-dom'
-import { Disc, Globe, Heart, Music, Pause, Play, Sparkles } from 'lucide-react'
+import { Link, useParams } from 'react-router-dom'
+import { ChevronRight, Disc, Heart, Music, Pause, Play, Radar, Sparkles } from 'lucide-react'
 import { emotionApi, songsApi } from '../api/client'
 import ParticleBg from '../components/ParticleBg'
-import EmotionRadar from '../components/EmotionRadar'
 import type { FeedbackData, PredictionData, RadarData, ReviewData, SongOut } from '../types'
 
 declare global {
@@ -48,7 +47,6 @@ export default function SongDetail() {
   const [useMusicKit, setUseMusicKit] = useState(false)
   const [musicKitAuthorized, setMusicKitAuthorized] = useState(false)
   const [feedback, setFeedback] = useState<FeedbackData | null>(null)
-  const [feedbackLoading, setFeedbackLoading] = useState(false)
 
   const audioRef = useRef<HTMLAudioElement | null>(null)
   const progressRef = useRef<HTMLInputElement | null>(null)
@@ -78,6 +76,7 @@ export default function SongDetail() {
     emotionApi.getRadar(songId).then(({ data }) => setRadar(data)).catch(() => {})
     emotionApi.getSongEmotion(songId).then(({ data }) => setPrediction(data)).catch(() => {})
     songsApi.getReview(songId).then(({ data }) => setReview(data)).catch(() => {})
+    songsApi.getFeedback(songId).then(({ data }) => setFeedback(data)).catch(() => {})
   }, [id])
 
   // MusicKit player event listeners
@@ -204,19 +203,6 @@ export default function SongDetail() {
       alert(err?.response?.data?.detail || '分析失败')
     } finally {
       setAnalyzing(false)
-    }
-  }
-
-  const handleFeedback = async () => {
-    if (!id) return
-    setFeedbackLoading(true)
-    try {
-      const { data } = await songsApi.getFeedback(Number(id))
-      setFeedback(data)
-    } catch (err: any) {
-      alert(err?.response?.data?.detail || '反馈采集失败')
-    } finally {
-      setFeedbackLoading(false)
     }
   }
 
@@ -364,19 +350,6 @@ export default function SongDetail() {
             </div>
           )}
 
-          {/* 数据增强按钮组 */}
-          <div className="flex flex-wrap items-center gap-2 mt-4">
-            
-            <button
-              onClick={handleFeedback}
-              disabled={feedbackLoading}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs border border-neon-pink/30 hover:border-neon-pink/60 transition-all text-slate-300 hover:text-neon-pink disabled:opacity-50"
-            >
-              <Globe className="w-3.5 h-3.5" />
-              {feedbackLoading ? '采集中...' : '多源公认度验证'}
-            </button>
-          </div>
-
           {/* 多源公认度评估结果 */}
           {feedback?.consensus && (
             <div className="glass mt-4 p-4 rounded-xl text-left space-y-3">
@@ -522,7 +495,11 @@ export default function SongDetail() {
           {/* 播放 + 收藏按钮 */}
           <div className="flex flex-col items-center lg:items-start gap-3 mt-6">
             <div className="flex items-center gap-3">
-              {useMusicKit ? (
+              {song?.platform === 'netease' && !previewUrl ? (
+                <span className="px-4 py-3 rounded-xl bg-white/5 text-slate-500 text-sm">
+                  暂无试听（网易云音频暂未接入）
+                </span>
+              ) : useMusicKit ? (
                 <button onClick={togglePlay} className="btn-neon">
                   {playing ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
                   {playing ? '暂停' : '继续'}
@@ -588,16 +565,34 @@ export default function SongDetail() {
           </div>
         </div>
 
-        {/* 右侧：雷达图 */}
+        {/* 右侧：情绪雷达入口 */}
         <div className="glass p-6 lg:p-8">
           <h2 className="font-display text-lg font-bold mb-4 text-center">情绪雷达图</h2>
           {radar ? (
-            <EmotionRadar dimensions={radar.dimensions} color={radar.color} />
+            <Link
+              to={`/song/${id}/radar`}
+              className="block group rounded-2xl border border-white/10 hover:border-white/25 bg-white/[0.03] hover:bg-white/[0.06] transition-all py-8 px-6 text-center"
+            >
+              <Radar className="w-6 h-6 mx-auto mb-2" style={{ color: radar.color }} />
+              <p className="text-sm font-medium" style={{ color: radar.color }}>
+                查看完整情绪雷达图
+              </p>
+              <p className="text-xs text-slate-500 mt-1">点击进入全维度情绪解读</p>
+              <ChevronRight className="w-4 h-4 mx-auto mt-2 text-slate-500 transition-transform group-hover:translate-x-0.5" />
+            </Link>
           ) : (
-            <div className="text-center text-slate-500 py-20">
-              <p>暂无情绪分析数据</p>
-              <p className="text-sm mt-1">点击「AI 情绪分析」按钮开始</p>
-            </div>
+            <Link
+              to={`/song/${id}/radar`}
+              className="block rounded-2xl border border-dashed border-white/15 hover:border-neon-purple/40 bg-white/[0.02] hover:bg-white/[0.04] transition-all py-10 px-6 text-center group"
+            >
+              <Radar className="w-8 h-8 text-slate-600 group-hover:text-neon-purple mx-auto mb-2 transition-colors" />
+              <p className="text-slate-400 text-sm mb-1">暂无情绪分析数据</p>
+              <p className="text-xs text-slate-600 mb-3">点击「AI 情绪分析」按钮生成雷达图</p>
+              <span className="inline-flex items-center gap-1 text-xs font-medium text-neon-purple">
+                情绪雷达入口
+                <ChevronRight className="w-3.5 h-3.5 transition-transform group-hover:translate-x-0.5" />
+              </span>
+            </Link>
           )}
         </div>
       </div>

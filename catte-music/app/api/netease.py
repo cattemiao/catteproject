@@ -85,8 +85,14 @@ async def sync_recent(
         song_id = str(item.get("netease_id", ""))
         if not song_id:
             continue
-        # 去重：netease_id 已存在则跳过
-        exists = await db.execute(select(Song).where(Song.platform == "netease", Song.netease_id == song_id))
+        # 去重：该用户下 netease_id 已存在则跳过
+        exists = await db.execute(
+            select(Song).where(
+                Song.platform == "netease",
+                Song.netease_id == song_id,
+                Song.user_id == user.id,
+            )
+        )
         if exists.scalar_one_or_none():
             continue
 
@@ -96,9 +102,10 @@ async def sync_recent(
             "preview_url": item.get("preview_url", ""),
         }
         song = Song(
-            apple_music_id=f"netese-{song_id}",  # 占位保持唯一
+            apple_music_id=f"netese-{user.id}-{song_id}",
             platform="netease",
             netease_id=song_id,
+            user_id=user.id,
             title=item.get("title", "")[:256],
             artist=item.get("artist", "")[:256],
             album=(item.get("album") or "")[:256],
@@ -137,13 +144,20 @@ async def search(
     saved = []
     for item in results:
         song_id = str(item.get("netease_id", ""))
-        exists = await db.execute(select(Song).where(Song.platform == "netease", Song.netease_id == song_id))
+        exists = await db.execute(
+            select(Song).where(
+                Song.platform == "netease",
+                Song.netease_id == song_id,
+                Song.user_id == user.id,
+            )
+        )
         song = exists.scalar_one_or_none()
         if not song:
             song = Song(
-                apple_music_id=f"netese-{song_id}",
+                apple_music_id=f"netese-{user.id}-{song_id}",
                 platform="netease",
                 netease_id=song_id,
+                user_id=user.id,
                 title=item.get("title", "")[:256],
                 artist=item.get("artist", "")[:256],
                 album=(item.get("album") or "")[:256],

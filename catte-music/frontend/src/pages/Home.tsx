@@ -23,6 +23,12 @@ export default function Home() {
     songsApi.list({ size: 12 }).then(({ data }) => setSongs(data.items)).catch(() => {})
     recommendApi.get(6).then(({ data }) => setRecs(data)).catch(() => {})
     recommendApi.getStyle(6).then(({ data }) => setStyleRecs(data)).catch(() => {})
+    // 进入首页时检查 Apple Music 授权状态，未授权则自动弹出授权窗口
+    authApi.me().then(({ data }) => {
+      if (!data.has_apple_music) {
+        syncAppleMusic()
+      }
+    }).catch(() => {})
   }, [])
 
   const syncAppleMusic = async () => {

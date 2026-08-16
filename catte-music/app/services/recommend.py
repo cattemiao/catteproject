@@ -51,8 +51,10 @@ async def recommend_by_emotion(
     emotion_rows = user_emotions.fetchall()
 
     if not emotion_rows:
-        # 无收藏数据时返回热门（按 id 倒序）
-        result = await db.execute(select(Song).order_by(Song.id.desc()).limit(limit))
+        # 无收藏数据时返回该用户最近同步的歌曲
+        result = await db.execute(
+            select(Song).where(Song.user_id == user_id).order_by(Song.id.desc()).limit(limit)
+        )
         return list(result.scalars().all())
 
     top_emotion_id = emotion_rows[0][0]
@@ -115,9 +117,9 @@ async def recommend_by_style(
     fav_songs = list(fav_result.scalars().all())
 
     if not fav_songs:
-        # 无收藏：返回最新歌曲
+        # 无收藏：返回该用户最近同步的歌曲
         result = await db.execute(
-            select(Song).order_by(Song.id.desc()).limit(limit)
+            select(Song).where(Song.user_id == user_id).order_by(Song.id.desc()).limit(limit)
         )
         return {
             "preference": None,
@@ -160,9 +162,10 @@ async def recommend_by_style(
     top_emotion = max(emotion_count, key=emotion_count.get) if emotion_count else None
 
     if not genre_count and not top_emotion:
-        # 无流派也无情绪信息，降级到最新
+        # 无流派也无情绪信息，降级到该用户最新
         result = await db.execute(
             select(Song)
+            .where(Song.user_id == user_id)
             .where(~Song.id.in_(fav_ids) if fav_ids else True)
             .order_by(Song.id.desc())
             .limit(limit)
@@ -185,9 +188,11 @@ async def recommend_by_style(
     top_genres = sorted(genre_count.items(), key=lambda x: -x[1])[:3]
     preferred_genres = {g for g, _ in top_genres}
 
-    # 4. 从库内找候选（未收藏的歌曲）
+    # 4. 从库内找候选（该用户未收藏的歌曲）
     cand_result = await db.execute(
-        select(Song).where(~Song.id.in_(fav_ids) if fav_ids else True)
+        select(Song)
+        .where(Song.user_id == user_id)
+        .where(~Song.id.in_(fav_ids) if fav_ids else True)
     )
     candidates = list(cand_result.scalars().all())
 

@@ -58,15 +58,37 @@ def _apply_lightweight_migrations(sync_conn) -> None:
 
     inspector = inspect(sync_conn)
 
-    # songs: 新增 platform / netease_id
+    # songs: 新增 platform / netease_id / user_id；去掉 apple_music_id 的 unique 约束（重建表）
     if "songs" in inspector.get_table_names():
         song_cols = {c["name"] for c in inspector.get_columns("songs")}
-        if "platform" not in song_cols:
-            sync_conn.execute(
-                text("ALTER TABLE songs ADD COLUMN platform VARCHAR(16) DEFAULT 'apple' NOT NULL")
-            )
-        if "netease_id" not in song_cols:
-            sync_conn.execute(text("ALTER TABLE songs ADD COLUMN netease_id VARCHAR(64)"))
+        # SQLite 无法 ALTER 删除 unique 约束，重建表
+        has_apple_unique = any(
+            "apple_music_id" in uc["column_names"]
+            for uc in inspector.get_unique_constraints("songs")
+        )
+        if has_apple_unique:
+            sync_conn.execute(text("ALTER TABLE songs RENAME TO _songs_old"))
+            from app.database import Base
+            from app.models.song import Song  # noqa: F811
+            Base.metadata.tables["songs"].create(sync_conn, checkfirst=True)
+            old_cols = [c["name"] for c in inspect(sync_conn).get_columns("_songs_old")]
+            common = [c for c in ["id", "apple_music_id", "platform", "netease_id", "title",
+                                   "artist", "album", "duration_ms", "raw_meta", "type",
+                                   "artist_bio"] if c in old_cols]
+            col_list = ", ".join(common)
+            sync_conn.execute(text(
+                f"INSERT INTO songs ({col_list}) SELECT {col_list} FROM _songs_old"
+            ))
+            sync_conn.execute(text("DROP TABLE _songs_old"))
+        else:
+            if "platform" not in song_cols:
+                sync_conn.execute(
+                    text("ALTER TABLE songs ADD COLUMN platform VARCHAR(16) DEFAULT 'apple' NOT NULL")
+                )
+            if "netease_id" not in song_cols:
+                sync_conn.execute(text("ALTER TABLE songs ADD COLUMN netease_id VARCHAR(64)"))
+            if "user_id" not in song_cols:
+                sync_conn.execute(text("ALTER TABLE songs ADD COLUMN user_id INTEGER"))
 
     # users: 新增 netease_cookie / netease_uid / netease_profile
     if "users" in inspector.get_table_names():

@@ -78,11 +78,16 @@ async def _ensure_song_in_db(
     db: AsyncSession, apple_music_id: str, title: str, artist: str,
     album: str = "", duration_ms: int | None = None,
     raw_meta: dict | None = None, song_type: str = "song",
+    user_id: int | None = None,
 ) -> Song:
-    """拉取的歌曲/专辑自动入库，补全缺失的元数据 + 艺术家简介。"""
-    result = await db.execute(
-        select(Song).where(Song.apple_music_id == apple_music_id)
-    )
+    """拉取的歌曲/专辑自动入库，补全缺失的元数据 + 艺术家简介。
+
+    按 (user_id, apple_music_id) 去重：不同用户各自维护一份记录。
+    """
+    query = select(Song).where(Song.apple_music_id == apple_music_id)
+    if user_id is not None:
+        query = query.where(Song.user_id == user_id)
+    result = await db.execute(query)
     song = result.scalar_one_or_none()
     if song:
         if raw_meta and not song.raw_meta:
@@ -99,7 +104,7 @@ async def _ensure_song_in_db(
     song = Song(
         apple_music_id=apple_music_id, title=title, artist=artist,
         album=album or None, duration_ms=duration_ms, raw_meta=raw_meta,
-        type=song_type, artist_bio=_get_artist_bio(artist),
+        type=song_type, artist_bio=_get_artist_bio(artist), user_id=user_id,
     )
     db.add(song)
     await db.flush()
@@ -144,6 +149,7 @@ async def recent_played(
             duration_ms=attrs.get("durationInMillis"),
             raw_meta=attrs,
             song_type=item_type,
+            user_id=user.id,
         )
         songs.append({
             "id": song.id, "apple_music_id": song.apple_music_id,

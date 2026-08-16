@@ -64,9 +64,10 @@ async def list_songs(
     size: int = Query(20, ge=1, le=100),
     platform: str | None = Query(None, description="apple/netease，默认全部"),
     db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
 ):
-    query = select(Song)
-    count_query = select(func.count()).select_from(Song)
+    query = select(Song).where(Song.user_id == user.id)
+    count_query = select(func.count()).select_from(Song).where(Song.user_id == user.id)
 
     if platform:
         query = query.where(Song.platform == platform)

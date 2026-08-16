@@ -24,7 +24,8 @@ class Song(Base):
     __tablename__ = "songs"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    apple_music_id: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    apple_music_id: Mapped[str] = mapped_column(String(64), index=True)
+    user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True, index=True)
     platform: Mapped[str] = mapped_column(String(16), default="apple")  # apple/netease
     netease_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     title: Mapped[str] = mapped_column(String(256))

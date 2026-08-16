@@ -1,0 +1,428 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "Catte Music · AI 音乐情绪可视化与探索平台",
+    "subtitle": "React + FastAPI + SQLite/PostgreSQL，单容器部署，Apple Music / 网易云 / B站 多源数据接入",
+    "quality_profile": "showcase",
+    "repository": {
+      "url": "https://github.com/cattemiao/catteproject.git",
+      "revision": "2bba552986e37bcd116b5ba2e16885b1db806a44"
+    },
+    "views": [
+      {
+        "id": "request-path",
+        "label": "请求主链路",
+        "focus": [
+          "users",
+          "nginx",
+          "frontend",
+          "api",
+          "db"
+        ],
+        "note": "用户请求从 HTTPS 入口直达数据库的主路径。"
+      },
+      {
+        "id": "ai-analysis",
+        "label": "AI 情绪分析",
+        "focus": [
+          "frontend",
+          "api",
+          "ai",
+          "db"
+        ],
+        "note": "歌曲预览 → librosa 特征 → 15 类情绪分类，结果入库。"
+      },
+      {
+        "id": "external-data",
+        "label": "外部数据接入",
+        "focus": [
+          "api",
+          "apple",
+          "appleapi",
+          "netease",
+          "neteaseapi",
+          "crawler",
+          "bili"
+        ],
+        "note": "Apple Music 目录、网易云 QR 登录、B站评论共识。"
+      }
+    ]
+  },
+  "components": [
+    {
+      "id": "users",
+      "type": "external",
+      "label": "用户",
+      "sublabel": "桌面 / iOS Safari",
+      "pos": [
+        40,
+        300
+      ],
+      "size": [
+        110,
+        56
+      ]
+    },
+    {
+      "id": "nginx",
+      "type": "cloud",
+      "label": "Nginx",
+      "sublabel": ":443 HTTPS 反代",
+      "tag": "ACME 证书",
+      "pos": [
+        230,
+        300
+      ],
+      "size": [
+        110,
+        56
+      ],
+      "sources": [
+        {
+          "path": "catte-music/docker/nginx.conf"
+        }
+      ]
+    },
+    {
+      "id": "frontend",
+      "type": "frontend",
+      "label": "React 前端",
+      "sublabel": "Vite :5173 · p5.js 可视化",
+      "tag": "MusicKit + Tailwind",
+      "pos": [
+        420,
+        300
+      ],
+      "size": [
+        130,
+        60
+      ],
+      "sources": [
+        {
+          "path": "catte-music/frontend/src/App.tsx"
+        },
+        {
+          "path": "catte-music/frontend/src/components/EmotionRadar.tsx"
+        }
+      ]
+    },
+    {
+      "id": "api",
+      "type": "backend",
+      "label": "FastAPI 网关",
+      "sublabel": ":8000 · REST API",
+      "tag": "JWT 鉴权 · CORS",
+      "pos": [
+        630,
+        300
+      ],
+      "size": [
+        130,
+        60
+      ],
+      "sources": [
+        {
+          "path": "catte-music/app/main.py"
+        },
+        {
+          "path": "catte-music/app/api/auth.py"
+        }
+      ]
+    },
+    {
+      "id": "db",
+      "type": "database",
+      "label": "SQLite / PostgreSQL",
+      "sublabel": "SQLAlchemy 2.0",
+      "tag": "开发 / 生产",
+      "pos": [
+        630,
+        470
+      ],
+      "size": [
+        130,
+        60
+      ],
+      "sources": [
+        {
+          "path": "catte-music/app/database.py"
+        },
+        {
+          "path": "catte-music/app/models/song.py"
+        }
+      ]
+    },
+    {
+      "id": "appleapi",
+      "type": "external",
+      "label": "Apple Music API",
+      "sublabel": "catalog + 预览音频",
+      "tag": "developer token",
+      "pos": [
+        1240,
+        130
+      ],
+      "size": [
+        130,
+        56
+      ]
+    },
+    {
+      "id": "neteaseapi",
+      "type": "external",
+      "label": "网易云音乐 API",
+      "sublabel": "weapi 加密接口",
+      "pos": [
+        1240,
+        300
+      ],
+      "size": [
+        130,
+        56
+      ]
+    },
+    {
+      "id": "bili",
+      "type": "external",
+      "label": "B站",
+      "sublabel": "评论 / 风格数据",
+      "pos": [
+        1240,
+        470
+      ],
+      "size": [
+        130,
+        56
+      ]
+    },
+    {
+      "id": "ai",
+      "type": "backend",
+      "label": "AI 引擎",
+      "sublabel": "librosa 特征 · 15 类情绪",
+      "tag": "sklearn + joblib",
+      "pos": [
+        1030,
+        640
+      ],
+      "size": [
+        130,
+        56
+      ],
+      "sources": [
+        {
+          "path": "catte-music/app/services/ai/feature.py"
+        },
+        {
+          "path": "catte-music/app/services/ai/classifier.py"
+        }
+      ]
+    },
+    {
+      "id": "apple",
+      "type": "backend",
+      "label": "Apple Music 集成",
+      "sublabel": "token 管理 · catalog 代理",
+      "tag": "services/apple_music",
+      "pos": [
+        1030,
+        130
+      ],
+      "size": [
+        130,
+        56
+      ],
+      "sources": [
+        {
+          "path": "catte-music/app/services/apple_music/auth.py"
+        },
+        {
+          "path": "catte-music/app/services/apple_music/client.py"
+        }
+      ]
+    },
+    {
+      "id": "netease",
+      "type": "backend",
+      "label": "网易云集成",
+      "sublabel": "QR 登录 · 最近播放同步",
+      "tag": "services/netease",
+      "pos": [
+        1030,
+        300
+      ],
+      "size": [
+        130,
+        56
+      ],
+      "sources": [
+        {
+          "path": "catte-music/app/services/netease/client.py"
+        }
+      ]
+    },
+    {
+      "id": "crawler",
+      "type": "backend",
+      "label": "爬虫服务",
+      "sublabel": "评论 / 评分 · 反爬策略",
+      "tag": "B站 · 网易评论共识",
+      "pos": [
+        1030,
+        470
+      ],
+      "size": [
+        130,
+        56
+      ],
+      "sources": [
+        {
+          "path": "catte-music/app/services/crawler/bilibili.py"
+        },
+        {
+          "path": "catte-music/app/services/crawler/anti_crawl.py"
+        }
+      ]
+    }
+  ],
+  "boundaries": [
+    {
+      "kind": "region",
+      "label": "单容器部署 · docker-compose",
+      "wraps": [
+        "nginx",
+        "frontend",
+        "api",
+        "db",
+        "ai",
+        "apple",
+        "netease",
+        "crawler"
+      ]
+    }
+  ],
+  "connections": [
+    {
+      "id": "users-to-nginx",
+      "from": "users",
+      "to": "nginx",
+      "label": "HTTPS",
+      "variant": "emphasis"
+    },
+    {
+      "id": "nginx-to-frontend",
+      "from": "nginx",
+      "to": "frontend",
+      "label": "反代 vite :5173",
+      "labelAt": [
+        369,
+        370
+      ]
+    },
+    {
+      "id": "frontend-to-api",
+      "from": "frontend",
+      "to": "api",
+      "label": "REST /api",
+      "variant": "emphasis"
+    },
+    {
+      "id": "api-to-db",
+      "from": "api",
+      "to": "db",
+      "label": "SQLAlchemy",
+      "labelAt": [
+        695,
+        374
+      ]
+    },
+    {
+      "id": "api-to-ai",
+      "from": "api",
+      "to": "ai",
+      "label": "触发情绪分析",
+      "labelSegment": 2
+    },
+    {
+      "id": "api-to-apple",
+      "from": "api",
+      "to": "apple",
+      "label": "搜索 / 评分 / 播放"
+    },
+    {
+      "id": "api-to-netease",
+      "from": "api",
+      "to": "netease",
+      "label": "QR 登录 / 同步",
+      "labelAt": [
+        784,
+        374
+      ]
+    },
+    {
+      "id": "api-to-crawler",
+      "from": "api",
+      "to": "crawler",
+      "label": "反馈 / 共识",
+      "labelSegment": 2
+    },
+    {
+      "id": "apple-to-appleapi",
+      "from": "apple",
+      "to": "appleapi",
+      "label": "catalog API"
+    },
+    {
+      "id": "netease-to-neteaseapi",
+      "from": "netease",
+      "to": "neteaseapi",
+      "label": "weapi 加密请求"
+    },
+    {
+      "id": "crawler-to-bili",
+      "from": "crawler",
+      "to": "bili",
+      "label": "评论 / 风格数据"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "入口与前端",
+      "items": [
+        "React 18 + Vite SPA，p5.js 情绪雷达与粒子背景",
+        "MusicKit on the Web 授权与播放",
+        "Tailwind 深色霓虹风格，移动优先"
+      ]
+    },
+    {
+      "dot": "violet",
+      "title": "应用服务层",
+      "items": [
+        "FastAPI 网关挂载 auth / songs / emotions / recommend / apple_music / netease 路由",
+        "JWT 鉴权 + CORS",
+        "启动时自动建表并播种情绪模板"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "领域服务",
+      "items": [
+        "AI 引擎：librosa 35 维特征 → 15 类情绪最近邻分类",
+        "Apple Music developer token + catalog 代理",
+        "网易云 QR 登录与 weapi 加密，爬虫反爬策略",
+        "B站 / 网易评论多源加权共识反馈"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "数据与部署",
+      "items": [
+        "SQLite（开发）与 PostgreSQL（生产）双数据库切换",
+        "单容器：nginx 443 → vite 5173 → FastAPI 8000",
+        ".env 与 Apple Music 私钥 (.p8) 仅卷挂载，不入镜像"
+      ]
+    }
+  ]
+}

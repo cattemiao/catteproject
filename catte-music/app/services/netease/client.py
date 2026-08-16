@@ -101,9 +101,10 @@ async def get_recent_played(
     limit: int = 10,
 ) -> list[dict]:
     """获取最近播放歌曲列表。"""
+    # 实测网易云接口：type=0 返回 allData（全部播放记录），type=1 返回 weekData（最近一周）
     payload, _ = await weapi_post(
         "/v1/play/record",
-        {"uid": uid, "type": 1, "limit": min(limit, 20), "offset": 0},
+        {"uid": uid, "type": 0, "limit": min(limit, 20), "offset": 0},
         cookies=cookies,
     )
     records = payload.get("allData", []) or payload.get("weekData", [])

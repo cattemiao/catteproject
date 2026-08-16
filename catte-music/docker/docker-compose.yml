@@ -1,44 +1,36 @@
+# 单容器部署：后端 + 前端 + nginx 打包在一个容器
+# - nginx 对外监听 HTTPS 443，反代到容器内部 vite(5173)，vite 再代理 /api 到内部后端(8000)
+# - 80 端口仅用于 Let's Encrypt ACME 验证 + HTTP→HTTPS 跳转
+# - 前端 5173 / 后端 8000 均只绑定容器内部 127.0.0.1，不暴露到宿主机
+# - .env 与 Apple Music 私钥（*.p8）通过卷挂载进容器，不打包进镜像
 services:
-  db:
-    image: postgres:16-alpine
-    environment:
-      POSTGRES_USER: catte
-      POSTGRES_PASSWORD: catte_pass
-      POSTGRES_DB: catte
-    ports:
-      - "5432:5432"
-    volumes:
-      - pg_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U catte"]
-      interval: 5s
-      timeout: 3s
-      retries: 5
-
-  web:
+  catte:
+    # 强制 x86_64 架构：构建与运行均使用 linux/amd64（构建环境为其他架构时自动模拟）
+    platform: linux/amd64
     build:
       context: ..
-      dockerfile: docker/Dockerfile
+      dockerfile: docker/Dockerfile.single
+      platforms:
+        - linux/amd64
     ports:
-      - "8000:8000"
+      - "80:80"   # ACME 验证 + HTTP→HTTPS 跳转
+      - "443:443" # HTTPS（对外主入口）
     env_file:
       - ../.env
     environment:
-      DATABASE_URL: postgresql+asyncpg://catte:catte_pass@db:5432/catte
-    depends_on:
-      db:
-        condition: service_healthy
+      # 内置 SQLite，数据持久化到挂载卷
+      DATABASE_URL: sqlite+aiosqlite:////app/data/catte.db
+      # Let's Encrypt 自动申请/续期：DOMAIN 非空即启用（无邮箱则以 register-unsafely-without-email 注册）
+      DOMAIN: "www.cattemiao.com"
+      CERTBOT_EMAIL: ""
     volumes:
+      # 数据库文件持久化
       - ../data:/app/data
-
-  frontend:
-    build:
-      context: ..
-      dockerfile: docker/Dockerfile.frontend
-    ports:
-      - "80:80"
-    depends_on:
-      - web
-
-volumes:
-  pg_data:
+      # 敏感配置/私钥仅挂载进容器，不进入镜像
+      - ../.env:/app/.env:ro
+      - ../AuthKey_6357HN89YK.p8:/app/AuthKey_6357HN89YK.p8:ro
+      # 证书目录（自签名持久化；正式证书可用同名文件覆盖）
+      - ./certs:/etc/nginx/certs
+      # Let's Encrypt 签发目录持久化（续期不丢失）
+      - ./letsencrypt:/etc/letsencrypt
+    restart: unless-stopped

@@ -25,7 +25,7 @@ RUN pip install --no-cache-dir uv
 COPY pyproject.toml uv.lock* ./
 RUN uv sync --frozen --no-dev 2>/dev/null || uv sync --no-dev
 
-# 安装前端依赖（vite dev server 运行时需要）
+# 先安装前端依赖（package.json 不变时缓存复用）
 COPY frontend/package.json frontend/package-lock.json* frontend/
 WORKDIR /app/frontend
 RUN npm install
@@ -33,6 +33,10 @@ RUN npm install
 # 拷贝全部源码（.dockerignore 已排除 node_modules/.venv 等）
 WORKDIR /app
 COPY . .
+
+# 构建前端生产包（产物 dist/ 由 nginx 托管）
+WORKDIR /app/frontend
+RUN npm run build
 
 # nginx HTTPS 配置 + 启动脚本
 COPY docker/nginx-https.conf /etc/nginx/conf.d/default.conf

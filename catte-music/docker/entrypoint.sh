@@ -2,7 +2,7 @@
 # 单容器启动脚本：
 #   证书：设置 DOMAIN + CERTBOT_EMAIL 后自动申请 Let's Encrypt 并每日自动续期；
 #         未设置则生成自签名证书兜底。
-#   服务：后端(127.0.0.1:8000) + 前端(127.0.0.1:5173) + nginx(80/443)
+#   服务：后端(127.0.0.1:8000) + nginx(80/443 托管前端生产包并反代 API)
 set -euo pipefail
 
 CERT_DIR="${CERT_DIR:-/etc/nginx/certs}"
@@ -36,16 +36,11 @@ cd /app
 uv run uvicorn app.main:app --host 127.0.0.1 --port 8000 &
 echo "[entrypoint] 后端已启动: 127.0.0.1:8000"
 
-# ---- 3. 启动前端 vite dev server（仅监听容器内部 127.0.0.1:5173）----
-cd /app/frontend
-npm run dev -- --host 127.0.0.1 --port 5173 &
-echo "[entrypoint] 前端已启动: 127.0.0.1:5173"
-
-# ---- 4. 启动 nginx（后台，先满足 ACME webroot 验证）----
+# ---- 3. 启动 nginx（后台，托管前端 dist + 反代 API；先满足 ACME webroot 验证）----
 nginx
 echo "[entrypoint] nginx 已启动: 80/443"
 
-# ---- 5. 首次申请 Let's Encrypt 证书（配置了域名时）----
+# ---- 4. 首次申请 Let's Encrypt 证书（配置了域名时）----
 if [ -n "$DOMAIN" ] && [ ! -f "$LE_LIVE/$DOMAIN/fullchain.pem" ]; then
     echo "[entrypoint] 申请 Let's Encrypt 证书: ${DOMAIN}"
     # 无邮箱时以 --register-unsafely-without-email 注册
@@ -66,7 +61,7 @@ if [ -n "$DOMAIN" ] && [ ! -f "$LE_LIVE/$DOMAIN/fullchain.pem" ]; then
     fi
 fi
 
-# ---- 6. 配置自动续期（cron 每日 03:17 / 15:17 检查，续期后重载 nginx）----
+# ---- 5. 配置自动续期（cron 每日 03:17 / 15:17 检查，续期后重载 nginx）----
 if [ -n "$DOMAIN" ]; then
     cat > /etc/cron.d/certbot-renew <<EOF
 SHELL=/bin/bash
@@ -78,5 +73,5 @@ EOF
     echo "[entrypoint] 已配置证书自动续期（每日检查）"
 fi
 
-# ---- 7. 前台保持容器存活 ----
+# ---- 6. 前台保持容器存活 ----
 tail -f /dev/null

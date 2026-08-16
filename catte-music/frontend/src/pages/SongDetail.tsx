@@ -1,9 +1,12 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { ChevronRight, Disc, Heart, Music, Pause, Play, Radar, Sparkles } from 'lucide-react'
 import { emotionApi, songsApi } from '../api/client'
-import ParticleBg from '../components/ParticleBg'
+import { loadMusicKit } from '../utils/musicKit'
 import type { FeedbackData, PredictionData, RadarData, ReviewData, SongOut } from '../types'
+
+// p5.js 粒子背景懒加载：不阻塞首屏
+const ParticleBg = lazy(() => import('../components/ParticleBg'))
 
 declare global {
   interface Window {
@@ -52,18 +55,22 @@ export default function SongDetail() {
   const progressRef = useRef<HTMLInputElement | null>(null)
   const musicKitRef = useRef<any>(null)
 
-  // Check MusicKit availability
+  // Check MusicKit availability（按需加载，失败静默回退到 preview）
   useEffect(() => {
-    try {
-      const mk = window.MusicKit
-      if (mk) {
-        const instance = mk.getInstance()
-        if (instance && instance.isAuthorized) {
-          setMusicKitAuthorized(true)
-          musicKitRef.current = instance
-        }
-      }
-    } catch { /* MusicKit not configured */ }
+    let cancelled = false
+    loadMusicKit()
+      .then((mk) => {
+        if (cancelled) return
+        try {
+          const instance = mk.getInstance()
+          if (instance && instance.isAuthorized) {
+            setMusicKitAuthorized(true)
+            musicKitRef.current = instance
+          }
+        } catch { /* MusicKit not configured */ }
+      })
+      .catch(() => {})
+    return () => { cancelled = true }
   }, [])
 
   useEffect(() => {
@@ -249,7 +256,7 @@ export default function SongDetail() {
 
   return (
     <div className="relative min-h-[calc(100dvh-64px)]">
-      <ParticleBg color={emotionColor} />
+      <Suspense fallback={null}><ParticleBg color={emotionColor} /></Suspense>
 
       {/* HTML5 audio for previews (hidden when using MusicKit) */}
       {!useMusicKit && (previewUrl || trackAudio) && (

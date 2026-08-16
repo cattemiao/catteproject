@@ -1,16 +1,12 @@
-import { useEffect, useState } from 'react'
+import { lazy, Suspense, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Disc, Music, TrendingUp, Sparkles, Compass } from 'lucide-react'
 import { songsApi, appleMusicApi, recommendApi, authApi } from '../api/client'
-import ParticleBg from '../components/ParticleBg'
+import { loadMusicKit } from '../utils/musicKit'
 import type { SongOut, StyleRecommendResult } from '../types'
 
-// MusicKit JS 全局类型
-declare global {
-  interface Window {
-    MusicKit: any
-  }
-}
+// p5.js 粒子背景懒加载：不阻塞首屏
+const ParticleBg = lazy(() => import('../components/ParticleBg'))
 
 export default function Home() {
   const [songs, setSongs] = useState<SongOut[]>([])
@@ -38,12 +34,8 @@ export default function Home() {
       // 1. 获取 Developer Token
       const { data: config } = await authApi.appleMusicConfig()
 
-      // 2. 配置 MusicKit JS
-      const MusicKit = window.MusicKit
-      if (!MusicKit) {
-        setSyncMsg('MusicKit JS 未加载，请刷新页面重试')
-        return
-      }
+      // 2. 按需加载并配置 MusicKit JS
+      const MusicKit = await loadMusicKit()
       await MusicKit.configure({
         developerToken: config.developer_token,
         app: { name: config.app_name, build: config.build },
@@ -77,7 +69,7 @@ export default function Home() {
 
   return (
     <div className="relative">
-      <ParticleBg color="#a855f7" />
+      <Suspense fallback={null}><ParticleBg color="#a855f7" /></Suspense>
 
       {/* Hero */}
       <section className="text-center py-12 mb-8">

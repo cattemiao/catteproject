@@ -56,7 +56,12 @@ def _apply_lightweight_migrations(sync_conn) -> None:
     """
     from sqlalchemy import inspect, text
 
+    from app.database import Base
+
     inspector = inspect(sync_conn)
+
+    # 清理历史上迁移中断遗留的重建临时表（SQLite 索引名全局唯一，残留表会占用 ix_songs_* 名称）
+    sync_conn.execute(text("DROP TABLE IF EXISTS _songs_old"))
 
     # songs: 新增 platform / netease_id / user_id；去掉 apple_music_id 的 unique 约束（重建表）
     if "songs" in inspector.get_table_names():
@@ -73,17 +78,34 @@ def _apply_lightweight_migrations(sync_conn) -> None:
                     has_apple_unique = True
                     break
         if has_apple_unique:
+            # SQLite 索引名全局唯一：先删除旧索引，避免新表创建同名索引时冲突
+            for idx in inspector.get_indexes("songs"):
+                if idx.get("name"):
+                    sync_conn.execute(text(f'DROP INDEX IF EXISTS "{idx["name"]}"'))
             sync_conn.execute(text("ALTER TABLE songs RENAME TO _songs_old"))
-            from app.database import Base
-            from app.models.song import Song  # noqa: F811
             Base.metadata.tables["songs"].create(sync_conn, checkfirst=True)
             old_cols = [c["name"] for c in inspect(sync_conn).get_columns("_songs_old")]
             common = [c for c in ["id", "apple_music_id", "platform", "netease_id", "title",
                                    "artist", "album", "duration_ms", "raw_meta", "type",
                                    "artist_bio"] if c in old_cols]
-            col_list = ", ".join(common)
+            # NOT NULL 列：已有列用 COALESCE 兜底 NULL，新表有而旧表没有的列用模型默认值填充
+            insert_cols = list(common)
+            select_cols = []
+            for c in common:
+                if c == "platform":
+                    select_cols.append("COALESCE(platform, 'apple') AS platform")
+                elif c == "type":
+                    select_cols.append("COALESCE(type, 'song') AS type")
+                else:
+                    select_cols.append(c)
+            for col, default in (("platform", "'apple'"), ("type", "'song'")):
+                if col not in old_cols:
+                    insert_cols.append(col)
+                    select_cols.append(f"{default} AS {col}")
+            col_list = ", ".join(insert_cols)
+            sel_list = ", ".join(select_cols)
             sync_conn.execute(text(
-                f"INSERT INTO songs ({col_list}) SELECT {col_list} FROM _songs_old"
+                f"INSERT INTO songs ({col_list}) SELECT {sel_list} FROM _songs_old"
             ))
             sync_conn.execute(text("DROP TABLE _songs_old"))
         else:
@@ -105,3 +127,11 @@ def _apply_lightweight_migrations(sync_conn) -> None:
             sync_conn.execute(text("ALTER TABLE users ADD COLUMN netease_uid VARCHAR(64)"))
         if "netease_profile" not in user_cols:
             sync_conn.execute(text("ALTER TABLE users ADD COLUMN netease_profile JSON"))
+
+    # 补建 models 定义的缺失索引（SQLite 的 create_all 不会为已存在表补建索引）
+    existing_tables = set(inspector.get_table_names())
+    for table in Base.metadata.tables.values():
+        if table.name not in existing_tables:
+            continue
+        for idx in table.indexes:
+            idx.create(sync_conn, checkfirst=True)

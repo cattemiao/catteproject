@@ -75,4 +75,16 @@ export const recommendApi = {
   getStyle: (limit = 6) => client.get<StyleRecommendResult>('/recommend/style', { params: { limit } }),
 }
 
+export interface SuggestionOut {
+  id: number
+  username: string
+  content: string
+  created_at: string
+}
+
+export const suggestionApi = {
+  list: () => client.get<SuggestionOut[]>('/suggestions'),
+  create: (content: string) => client.post<SuggestionOut>('/suggestions', { content }),
+}
+
 export default client

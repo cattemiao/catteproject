@@ -66,6 +66,12 @@ def _apply_lightweight_migrations(sync_conn) -> None:
             "apple_music_id" in uc["column_names"]
             for uc in inspector.get_unique_constraints("songs")
         )
+        # 也检查 unique 索引（SQLite 列级 UNIQUE 在 index_list 里体现）
+        if not has_apple_unique:
+            for idx in inspector.get_indexes("songs"):
+                if "apple_music_id" in idx.get("column_names", []) and idx.get("unique"):
+                    has_apple_unique = True
+                    break
         if has_apple_unique:
             sync_conn.execute(text("ALTER TABLE songs RENAME TO _songs_old"))
             from app.database import Base

@@ -2,6 +2,7 @@ import { type ReactNode } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { Home, Heart, LogOut, Music, Podcast } from 'lucide-react'
 import logo from '../../logo.png'
+import SuggestionBox from './SuggestionBox'
 
 export default function Layout({ children }: { children: ReactNode }) {
   const navigate = useNavigate()
@@ -66,6 +67,7 @@ export default function Layout({ children }: { children: ReactNode }) {
               <span className="hidden sm:inline">{label}</span>
             </Link>
           ))}
+          <SuggestionBox />
           <button
             onClick={logout}
             className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm text-slate-400 hover:text-red-400 hover:bg-red-500/10 transition-all"

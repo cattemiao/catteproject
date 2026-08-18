@@ -50,10 +50,10 @@ export default function SuggestionBox() {
       {/* 触发按钮 */}
       <button
         onClick={() => setOpen(true)}
-        className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm text-slate-400 hover:text-neon-cyan hover:bg-neon-cyan/10 transition-all"
+        className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm text-purple-400 hover:text-purple-300 hover:bg-purple-500/10 transition-all"
         title="意见投稿"
       >
-        <MessageSquareText className="w-4 h-4" />
+        <MessageSquareText className="w-4 h-4 text-amber-400" />
         <span className="hidden sm:inline">意见</span>
       </button>
 
@@ -64,71 +64,71 @@ export default function SuggestionBox() {
           onClick={() => setOpen(false)}
         >
           <div
-            className="glass w-full max-w-lg rounded-2xl shadow-2xl"
+            className="w-full max-w-lg rounded-2xl shadow-2xl bg-yellow-400/90 border border-yellow-500"
             onClick={(e) => e.stopPropagation()}
           >
             {/* 头部 */}
-            <div className="flex items-center justify-between px-5 py-4 border-b border-white/10">
-              <h3 className="font-display font-bold flex items-center gap-2">
-                <MessageSquareText className="w-5 h-5 text-neon-cyan" />
+            <div className="flex items-center justify-between px-5 py-4 border-b border-purple-900/20">
+              <h3 className="font-display font-bold flex items-center gap-2 text-purple-800">
+                <MessageSquareText className="w-5 h-5 text-purple-700" />
                 意见投稿箱
               </h3>
               <button
                 onClick={() => setOpen(false)}
-                className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition-all"
+                className="p-1 rounded-lg text-purple-700 hover:text-purple-900 hover:bg-purple-200/50 transition-all"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
 
             {/* 投稿表单 */}
-            <form onSubmit={submit} className="px-5 py-4 border-b border-white/10">
+            <form onSubmit={submit} className="px-5 py-4 border-b border-purple-900/20">
               <textarea
                 value={content}
                 onChange={(e) => setContent(e.target.value)}
                 maxLength={1000}
                 rows={3}
-                className="w-full px-3 py-2.5 rounded-xl bg-white/5 border border-white/10
-                           focus:border-neon-cyan/50 focus:outline-none focus:ring-2
-                           focus:ring-neon-cyan/20 transition-all text-white text-sm
-                           placeholder:text-slate-600 resize-none"
+                className="w-full px-3 py-2.5 rounded-xl bg-purple-50/80 border border-purple-300
+                           focus:border-purple-500 focus:outline-none focus:ring-2
+                           focus:ring-purple-400/30 transition-all text-purple-800 text-sm
+                           placeholder:text-purple-400 resize-none"
                 placeholder="写下你的意见或建议…（登录后可投稿）"
               />
               <div className="flex items-center justify-between mt-2">
-                <span className="text-xs text-slate-600">{content.length}/1000</span>
+                <span className="text-xs text-purple-700">{content.length}/1000</span>
                 <button
                   type="submit"
                   disabled={submitting || !content.trim()}
                   className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-sm font-medium
-                             bg-neon-cyan/15 text-neon-cyan border border-neon-cyan/30
-                             hover:bg-neon-cyan/25 transition-all disabled:opacity-40"
+                             bg-purple-600/20 text-purple-700 border border-purple-500/40
+                             hover:bg-purple-600/30 transition-all disabled:opacity-40"
                 >
                   <Send className="w-3.5 h-3.5" />
                   {submitting ? '提交中…' : '投稿'}
                 </button>
               </div>
               {error && (
-                <p className="text-xs text-red-400 mt-2">{error}</p>
+                <p className="text-xs text-red-600 mt-2">{error}</p>
               )}
             </form>
 
-            {/* 投稿列表（所有人可见） */}
-            <div className="px-5 py-4 max-h-[320px] overflow-y-auto">
+            {/* 投稿列表（所有人可见，可滑动） */}
+            <div className="px-5 py-4 overflow-y-auto max-h-[50vh] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-purple-400/50 [&::-webkit-scrollbar-track]:bg-transparent">
               {loading ? (
-                <p className="text-sm text-slate-500 text-center py-4">加载中…</p>
+                <p className="text-sm text-purple-700 text-center py-4">加载中…</p>
               ) : list.length === 0 ? (
-                <p className="text-sm text-slate-500 text-center py-4">
+                <p className="text-sm text-purple-700 text-center py-4">
                   暂无投稿，快来抢沙发
                 </p>
               ) : (
                 <div className="space-y-3">
                   {list.map((s) => (
-                    <div key={s.id} className="p-3 rounded-xl bg-white/[0.03] border border-white/5">
+                    <div key={s.id} className="p-3 rounded-xl bg-purple-100/60 border border-purple-300/50">
                       <div className="flex items-center justify-between mb-1">
-                        <span className="text-xs font-medium text-neon-cyan">{s.username}</span>
-                        <span className="text-xs text-slate-600">{s.created_at}</span>
+                        <span className="text-xs font-medium text-purple-800">{s.username}</span>
+                        <span className="text-xs text-purple-500">{s.created_at}</span>
                       </div>
-                      <p className="text-sm text-slate-300 leading-relaxed whitespace-pre-wrap break-words">
+                      <p className="text-sm text-purple-800 leading-relaxed whitespace-pre-wrap break-words">
                         {s.content}
                       </p>
                     </div>

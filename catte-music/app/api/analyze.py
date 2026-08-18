@@ -72,55 +72,97 @@ def _map_features_to_dimensions(features: "np.ndarray") -> "np.ndarray":  # noqa
     tonnetz = features[29:35]   # 6 维
 
     # ── 7 维映射（chroma/tonnetz 增强）──
+    # 系数按真实特征分布标定：典型歌曲各维度落于 30-85，极端才接近 0/100，
+    # 避免 loudness/layering 等维度普遍顶格、soothing 普遍压零
 
-    loudness = min(100, max(0, rmse * 1000))
+    loudness = min(100, max(0, rmse * 240))
 
-    # 高频：频谱质心 + MFCC 低阶均值 + chroma 高半音响应
+    # 高频：频谱质心为主 + chroma 高半音响应
     high_freq = min(100, max(0,
-        (centroid / 5000) * 55 +
-        float(np.mean(mfcc[:4])) * 5 +
-        float(np.mean(chroma[6:])) * 35  # chroma 6-11 对应高半音
+        (centroid / 5000) * 100 +
+        float(np.mean(chroma[6:])) * 50 - 10
     ))
 
-    rhythm = min(100, max(0, tempo * 0.8))
+    rhythm = min(100, max(0, tempo * 0.5))
 
     # 声场：MFCC 中高阶标准差 + chroma 标准差（反映和声空间广度）
     soundstage = min(100, max(0,
-        45 + float(np.std(mfcc[4:10])) * 3 +
-        float(np.std(chroma)) * 20
+        30 + float(np.std(mfcc[4:10])) * 5 +
+        float(np.std(chroma)) * 30
     ))
 
     # 层次：MFCC 全阶标准差 + tonnetz 标准差（反映调性复杂度）
     layering = min(100, max(0,
-        35 + float(np.std(mfcc)) * 4 +
-        float(np.std(tonnetz)) * 15
+        float(np.std(mfcc)) * 1.2 +
+        float(np.std(tonnetz)) * 40
     ))
 
     # 舒缓：反比于响度和高频，正比于 chroma 低频能量
     soothing = min(100, max(0,
-        100 - rmse * 750 -
-        (centroid / 5000) * 28 +
-        float(np.mean(chroma[:4])) * 25  # 低半音越多越舒缓
+        85 - rmse * 150 -
+        (centroid / 5000) * 20 +
+        float(np.mean(chroma[:4])) * 25
     ))
 
     # 韵律：节奏变化 + MFCC 动态 + tonnetz 调性变化
+    prosody = min(100, max(0,
+        25 + float(np.std(mfcc[2:8])) * 4 +
+        (zcr * 40) +
+        float(np.std(tonnetz)) * 30
+    ))
+
+    return np.array([loudness, high_freq, rhythm, soundstage, layering, soothing, prosody])
+
+
+def _map_features_to_dimensions_legacy(features: "np.ndarray") -> "np.ndarray":  # noqa: F821
+    """35 维音频特征 → 7 维情绪指标（旧饱和空间，仅供情绪分类器使用）。
+
+    情绪模板按旧空间标定，保持分类结果稳定；展示用的维度请用
+    `_map_features_to_dimensions`（新标定空间，幅度更分散）。
+    """
+    import numpy as np
+
+    tempo, rmse, centroid, zcr = features[0], features[1], features[2], features[3]
+    mfcc = features[4:17]
+    chroma = features[17:29]
+    tonnetz = features[29:35]
+
+    loudness = min(100, max(0, rmse * 1000))
+    high_freq = min(100, max(0,
+        (centroid / 5000) * 55 +
+        float(np.mean(mfcc[:4])) * 5 +
+        float(np.mean(chroma[6:])) * 35
+    ))
+    rhythm = min(100, max(0, tempo * 0.8))
+    soundstage = min(100, max(0,
+        45 + float(np.std(mfcc[4:10])) * 3 +
+        float(np.std(chroma)) * 20
+    ))
+    layering = min(100, max(0,
+        35 + float(np.std(mfcc)) * 4 +
+        float(np.std(tonnetz)) * 15
+    ))
+    soothing = min(100, max(0,
+        100 - rmse * 750 -
+        (centroid / 5000) * 28 +
+        float(np.mean(chroma[:4])) * 25
+    ))
     prosody = min(100, max(0,
         25 + float(np.std(mfcc[2:8])) * 3.5 +
         (zcr * 75) +
         float(np.std(tonnetz)) * 12
     ))
-
     return np.array([loudness, high_freq, rhythm, soundstage, layering, soothing, prosody])
 
 
 def _classify_by_profile(
     features: "np.ndarray",  # noqa: F821
 ) -> tuple[str, float]:
-    """基于 7 维情绪模板的最近邻分类器。"""
+    """基于 7 维情绪模板的最近邻分类器（使用旧饱和空间，与模板匹配）。"""
     import numpy as np
     from app.services.ai.seed_emotions import EMOTION_PROFILES
 
-    audio_dim = _map_features_to_dimensions(features)
+    audio_dim = _map_features_to_dimensions_legacy(features)
 
     best_emotion = "治愈"
     best_dist = float("inf")

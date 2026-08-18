@@ -1,40 +1,31 @@
 import { useEffect, useState } from 'react'
-import { MessageSquareText, Send, X } from 'lucide-react'
-import { suggestionApi, type SuggestionOut } from '../api/client'
+import { Check, MessageSquareText, Send, X } from 'lucide-react'
+import { suggestionApi } from '../api/client'
 
 export default function SuggestionBox() {
   const [open, setOpen] = useState(false)
-  const [list, setList] = useState<SuggestionOut[]>([])
   const [content, setContent] = useState('')
   const [submitting, setSubmitting] = useState(false)
-  const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [success, setSuccess] = useState(false)
 
-  const load = async () => {
-    setLoading(true)
-    try {
-      const { data } = await suggestionApi.list()
-      setList(data)
-    } catch {
-      setError('加载失败')
-    } finally {
-      setLoading(false)
-    }
-  }
-
+  // 成功提示 3 秒后自动消失
   useEffect(() => {
-    if (open) load()
-  }, [open])
+    if (!success) return
+    const timer = setTimeout(() => setSuccess(false), 3000)
+    return () => clearTimeout(timer)
+  }, [success])
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!content.trim()) return
     setSubmitting(true)
     setError('')
+    setSuccess(false)
     try {
-      const { data } = await suggestionApi.create(content.trim())
-      setList((prev) => [data, ...prev])
+      await suggestionApi.create(content.trim())
       setContent('')
+      setSuccess(true)
     } catch (err: unknown) {
       const msg =
         (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail ||
@@ -82,7 +73,7 @@ export default function SuggestionBox() {
             </div>
 
             {/* 投稿表单 */}
-            <form onSubmit={submit} className="px-5 py-4 border-b border-white/10">
+            <form onSubmit={submit} className="px-5 py-4">
               <textarea
                 value={content}
                 onChange={(e) => setContent(e.target.value)}
@@ -113,35 +104,13 @@ export default function SuggestionBox() {
                   {error}
                 </p>
               )}
-            </form>
-
-            {/* 投稿列表（所有人可见，可滑动） */}
-            <div className="px-5 py-4 overflow-y-auto max-h-[50vh] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-white/20 [&::-webkit-scrollbar-track]:bg-transparent">
-              {loading ? (
-                <p className="text-sm text-slate-400 text-center py-4">加载中…</p>
-              ) : list.length === 0 ? (
-                <p className="text-sm text-slate-400 text-center py-4">
-                  暂无投稿，快来抢沙发
+              {success && (
+                <p className="text-xs text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 rounded-lg px-3 py-2 mt-2 flex items-center gap-1.5">
+                  <Check className="w-3.5 h-3.5" />
+                  投稿成功，感谢你的反馈！
                 </p>
-              ) : (
-                <div className="space-y-3">
-                  {list.map((s) => (
-                    <div
-                      key={s.id}
-                      className="p-3 rounded-xl bg-white/5 border border-white/10 hover:border-neon-purple/30 transition-all"
-                    >
-                      <div className="flex items-center justify-between mb-1">
-                        <span className="text-xs font-medium text-neon-cyan">{s.username}</span>
-                        <span className="text-xs text-slate-500">{s.created_at}</span>
-                      </div>
-                      <p className="text-sm text-slate-200 leading-relaxed whitespace-pre-wrap break-words">
-                        {s.content}
-                      </p>
-                    </div>
-                  ))}
-                </div>
               )}
-            </div>
+            </form>
           </div>
         </div>
       )}

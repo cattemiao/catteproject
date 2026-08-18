@@ -62,6 +62,11 @@ class AppleMusicClient:
         params = {"limit": limit}
         return await self._request("GET", "/v1/me/heavy-rotation", params=params)
 
+    async def get_library_albums(self, limit: int = 100, offset: int = 0) -> dict:
+        """获取用户资料库中的专辑（可翻页，单页最多 100）。"""
+        params = {"limit": limit, "offset": offset}
+        return await self._request("GET", "/v1/me/library/albums", params=params)
+
     async def rate_song(self, song_id: str, rating: int) -> dict:
         """为歌曲打分。rating: 1=喜欢, -1=不喜欢, 0=取消。"""
         return await self._request(

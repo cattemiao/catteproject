@@ -1,13 +1,33 @@
-import { type ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
-import { Home, Heart, LogOut, Music, Podcast } from 'lucide-react'
+import { Home, Heart, LogOut, Music, Podcast, User } from 'lucide-react'
 import logo from '../../logo.png'
 import SuggestionBox from './SuggestionBox'
-import { clearToken } from '../utils/auth'
+import { clearToken, getCurrentUsername } from '../utils/auth'
+import { songsApi } from '../api/client'
 
 export default function Layout({ children }: { children: ReactNode }) {
   const navigate = useNavigate()
   const location = useLocation()
+  const username = getCurrentUsername()
+
+  // 专辑详情页路径为 /song/:id，需按歌曲平台高亮对应导航
+  const [songPlatform, setSongPlatform] = useState<string | null>(null)
+  useEffect(() => {
+    const match = location.pathname.match(/^\/song\/(\d+)/)
+    if (match) {
+      setSongPlatform(null)
+      songsApi
+        .get(Number(match[1]))
+        .then(({ data }) => setSongPlatform(data.platform ?? 'apple'))
+        .catch(() => setSongPlatform(null))
+    } else {
+      setSongPlatform(null)
+    }
+  }, [location.pathname])
+
+  const songLoading = !!location.pathname.match(/^\/song\/(\d+)/) && songPlatform === null
+  const isNetease = location.pathname.startsWith('/netease') || songPlatform === 'netease'
 
   const logout = () => {
     clearToken()
@@ -18,8 +38,6 @@ export default function Layout({ children }: { children: ReactNode }) {
     { to: '/', icon: Home, label: '首页' },
     { to: '/favorites', icon: Heart, label: '收藏' },
   ]
-
-  const isNetease = location.pathname.startsWith('/netease')
 
   return (
     <div className="min-h-[100dvh] flex flex-col">
@@ -35,7 +53,7 @@ export default function Layout({ children }: { children: ReactNode }) {
             <Link
               to="/"
               className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all ${
-                !isNetease
+                !isNetease && !songLoading
                   ? 'bg-neon-purple/20 text-white shadow-[0_0_12px_rgba(168,85,247,0.3)]'
                   : 'text-slate-400 hover:text-white'
               }`}
@@ -69,6 +87,12 @@ export default function Layout({ children }: { children: ReactNode }) {
             </Link>
           ))}
           <SuggestionBox />
+          {username && (
+            <div className="flex items-center gap-1.5 px-3 py-2 text-sm text-slate-300 ml-1 border-l border-white/10">
+              <User className="w-4 h-4 text-neon-cyan flex-shrink-0" />
+              <span className="max-w-[120px] truncate">{username}</span>
+            </div>
+          )}
           <button
             onClick={logout}
             className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm text-slate-400 hover:text-red-400 hover:bg-red-500/10 transition-all"

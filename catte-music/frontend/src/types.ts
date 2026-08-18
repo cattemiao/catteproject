@@ -130,3 +130,22 @@ export interface StyleRecommendResult {
   } | null
   recommendations: StyleRecommendation[]
 }
+
+// MusicBrainz 权威元数据
+export interface MusicBrainzItem {
+  mbid: string
+  title: string
+  artist?: string | null
+  release_date?: string | null
+  type?: string | null
+  tags?: string[]
+  rating?: number | null
+  rating_votes?: number
+  track_count?: number | null
+  url?: string | null
+}
+
+export interface MusicBrainzData {
+  found: boolean
+  items: MusicBrainzItem[]
+}

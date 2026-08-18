@@ -207,6 +207,58 @@ async def heavy_rotation(
     return {"items": songs}
 
 
+def _extract_catalog_album_id(item: dict) -> str | None:
+    """从 library-albums 的 url 提取 catalog 专辑 id（形如 .../album/名称/<数字>）。"""
+    url = (item.get("attributes") or {}).get("url", "")
+    match = re.search(r"/album/.*?/(\d+)(?:\?|$)", url)
+    return match.group(1) if match else None
+
+
+@router.get("/library")
+async def sync_library_albums(
+    limit: int = Query(100, ge=1, le=100),
+    max_albums: int = Query(300, ge=1, le=1000),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """分页同步用户 Apple Music 资料库中的专辑（每页最多 100，可拉全量）。"""
+    client = await _get_client(user)
+    offset = 0
+    songs = []
+    while offset < max_albums:
+        page = await client.get_library_albums(limit=limit, offset=offset)
+        items = page.get("data", [])
+        if not items:
+            break
+        for item in items:
+            attrs = item.get("attributes", {})
+            name = attrs.get("name", "")
+            artist = attrs.get("artistName", "")
+            # 批量列表不含曲目关系（include=tracks 仅限单资源），先存专辑基本信息
+            song = await _ensure_song_in_db(
+                db,
+                apple_music_id=item["id"],
+                title=name,
+                artist=artist,
+                album=name,
+                raw_meta=attrs,
+                song_type="albums",
+                user_id=user.id,
+            )
+            songs.append({
+                "id": song.id, "apple_music_id": song.apple_music_id,
+                "title": song.title, "artist": song.artist,
+                "album": song.album, "type": "albums",
+                "artist_bio": getattr(song, "artist_bio", None),
+            })
+        offset += len(items)
+        if len(items) < limit:
+            break
+
+    await db.commit()
+    return {"items": songs, "total": len(songs)}
+
+
 @router.post("/rating/{apple_music_id}")
 async def rate_song(
     apple_music_id: str,

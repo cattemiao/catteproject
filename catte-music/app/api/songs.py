@@ -182,15 +182,50 @@ async def get_song_review(song_id: int, db: AsyncSession = Depends(get_db)):
     }
 
 
+@router.get("/{song_id}/musicbrainz")
+async def get_song_musicbrainz(song_id: int, db: AsyncSession = Depends(get_db)):
+    """获取 MusicBrainz 权威音乐元数据（专辑/单曲均可）。"""
+    from app.services.musicbrainz import fetch_musicbrainz_info
+
+    result = await db.execute(select(Song).where(Song.id == song_id))
+    song = result.scalar_one_or_none()
+    if not song:
+        raise HTTPException(status_code=404, detail="歌曲不存在")
+    # 播放列表在 MusicBrainz 无对应实体，直接返回未匹配
+    if getattr(song, "type", "song") == "playlists":
+        return {"found": False, "items": []}
+    try:
+        # 专辑页优先按专辑名匹配；单曲则退回歌曲名
+        return await fetch_musicbrainz_info(song.album or song.title, song.artist)
+    except httpx.HTTPError:
+        raise HTTPException(status_code=502, detail="MusicBrainz 请求失败，请稍后重试")
+
+
 @router.get("/{song_id}/album-tracks")
 async def get_album_tracks(song_id: int, db: AsyncSession = Depends(get_db)):
-    """如果歌曲是专辑类型，从 Apple Music catalog 拉取曲目列表。"""
+    """专辑曲目：优先返回资料库同步时保存的曲目，否则从 Apple Music catalog 拉取。"""
     result = await db.execute(select(Song).where(Song.id == song_id))
     song = result.scalar_one_or_none()
     if not song:
         raise HTTPException(status_code=404, detail="歌曲不存在")
     if getattr(song, "type", "song") != "albums":
         raise HTTPException(status_code=400, detail="该条目不是专辑")
+
+    # 资料库同步的专辑自带曲目（relationships.tracks），无需请求 catalog
+    lib_tracks = ((song.raw_meta or {}).get("relationships") or {}).get("tracks", {}).get("data", [])
+    if lib_tracks:
+        tracks = []
+        for item in lib_tracks:
+            attrs = item.get("attributes", {})
+            tracks.append({
+                "id": item.get("id"),
+                "title": attrs.get("name", ""),
+                "artist": attrs.get("artistName", ""),
+                "duration_ms": attrs.get("durationInMillis"),
+                "track_number": attrs.get("trackNumber"),
+                "preview_url": None,
+            })
+        return {"album_title": song.title, "album_artist": song.artist, "tracks": tracks}
 
     dev_token = get_developer_token()
     headers = {"Authorization": f"Bearer {dev_token}"}
@@ -200,6 +235,23 @@ async def get_album_tracks(song_id: int, db: AsyncSession = Depends(get_db)):
             params={"limit": 50},
             headers=headers,
         )
+        if resp.status_code == 404:
+            # 资料库专辑 id 不是 catalog id，按 专辑名 + 艺术家 搜索 catalog 再拉曲目
+            search_resp = await cli.get(
+                f"{API_BASE}/v1/catalog/us/search",
+                params={"term": f"{song.title} {song.artist}", "types": "albums", "limit": 5},
+                headers=headers,
+            )
+            if search_resp.status_code != 200:
+                raise HTTPException(status_code=502, detail="Apple Music 曲目获取失败")
+            albums = (search_resp.json().get("results") or {}).get("albums", {}).get("data", [])
+            if not albums:
+                raise HTTPException(status_code=404, detail="未找到该专辑的曲目")
+            resp = await cli.get(
+                f"{API_BASE}/v1/catalog/us/albums/{albums[0]['id']}/tracks",
+                params={"limit": 50},
+                headers=headers,
+            )
         resp.raise_for_status()
     data = resp.json()
     tracks = []

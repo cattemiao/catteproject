@@ -30,3 +30,15 @@ export function isTokenValid(): boolean {
     return false
   }
 }
+
+/** 从本地 token 解码当前登录用户名（无 token 或解析失败返回空串） */
+export function getCurrentUsername(): string {
+  const token = getToken()
+  if (!token) return ''
+  try {
+    const payload = JSON.parse(atob(token.split('.')[1]))
+    return typeof payload.sub === 'string' ? payload.sub : ''
+  } catch {
+    return ''
+  }
+}

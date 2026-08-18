@@ -10,6 +10,8 @@ const ParticleBg = lazy(() => import('../components/ParticleBg'))
 
 export default function Home() {
   const [songs, setSongs] = useState<SongOut[]>([])
+  const [page, setPage] = useState(1)
+  const [total, setTotal] = useState(0)
   const [recs, setRecs] = useState<SongOut[]>([])
   const [styleRecs, setStyleRecs] = useState<StyleRecommendResult | null>(null)
   const [syncing, setSyncing] = useState(false)
@@ -17,9 +19,21 @@ export default function Home() {
   const [clearing, setClearing] = useState(false)
   const [clearMsg, setClearMsg] = useState('')
 
+  const PAGE_SIZE = 12
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))
+
+  // 音乐库分页加载（Apple Music 页只展示 Apple 平台导入的歌曲）
   useEffect(() => {
-    // Apple Music 页：音乐库与推荐区均只展示 Apple Music 平台导入的歌曲
-    songsApi.list({ size: 12, platform: 'apple' }).then(({ data }) => setSongs(data.items)).catch(() => {})
+    songsApi.list({ page, size: PAGE_SIZE, platform: 'apple' })
+      .then(({ data }) => {
+        setSongs(data.items)
+        setTotal(data.total)
+      })
+      .catch(() => {})
+  }, [page])
+
+  // 推荐区仅加载一次
+  useEffect(() => {
     recommendApi.get(6, { platform: 'apple' }).then(({ data }) => setRecs(data)).catch(() => {})
     recommendApi.getStyle(6, { platform: 'apple' }).then(({ data }) => setStyleRecs(data)).catch(() => {})
   }, [])
@@ -31,6 +45,8 @@ export default function Home() {
     try {
       const { data } = await songsApi.clear('apple')
       setSongs([])
+      setPage(1)
+      setTotal(0)
       setRecs([])
       setStyleRecs(null)
       setClearMsg(`已清空 ${data.deleted} 首，可重新同步`)
@@ -68,7 +84,10 @@ export default function Home() {
 
       // 5. 同步最近播放记录（Apple 限制 limit ≤ 10）
       await appleMusicApi.recent(10)
-      setSyncMsg('同步成功！')
+
+      // 6. 分页同步资料库专辑（每页最多 100，可拉全量）
+      const { data: lib } = await appleMusicApi.library(300)
+      setSyncMsg(`同步成功！新增最近播放 + ${lib.total} 张专辑`)
       setTimeout(() => location.reload(), 800)
     } catch (err: unknown) {
       const msg =
@@ -184,6 +203,32 @@ export default function Home() {
             <SongCard key={song.id} song={song} />
           ))}
         </div>
+        {songs.length === 0 && (
+          <p className="text-sm text-slate-500 text-center py-8">
+            暂无歌曲，点击上方按钮同步 Apple Music 听歌记录
+          </p>
+        )}
+        {total > PAGE_SIZE && (
+          <div className="flex items-center justify-center gap-3 mt-6">
+            <button
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              disabled={page <= 1}
+              className="px-3 py-1.5 rounded-lg text-sm text-slate-300 hover:text-white border border-white/10 hover:border-neon-purple/40 transition-all disabled:opacity-40 disabled:hover:text-slate-300 disabled:hover:border-white/10"
+            >
+              上一页
+            </button>
+            <span className="text-sm text-slate-400">
+              第 {page} / {totalPages} 页 · 共 {total} 首
+            </span>
+            <button
+              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+              disabled={page >= totalPages}
+              className="px-3 py-1.5 rounded-lg text-sm text-slate-300 hover:text-white border border-white/10 hover:border-neon-purple/40 transition-all disabled:opacity-40 disabled:hover:text-slate-300 disabled:hover:border-white/10"
+            >
+              下一页
+            </button>
+          </div>
+        )}
       </section>
     </div>
   )

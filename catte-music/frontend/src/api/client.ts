@@ -1,5 +1,5 @@
 import axios from 'axios'
-import type { PredictionData, RadarData, ReviewData, SongListOut, SongOut, PreviewData, StyleRecommendResult } from '../types'
+import type { MusicBrainzData, PredictionData, RadarData, ReviewData, SongListOut, SongOut, PreviewData, StyleRecommendResult } from '../types'
 import { getToken, clearToken } from '../utils/auth'
 
 const client = axios.create({ baseURL: '/api' })
@@ -45,6 +45,8 @@ export const songsApi = {
   getReview: (id: number) => client.get<ReviewData>(`/songs/${id}/review`),
   getAlbumTracks: (songId: number) =>
     client.get(`/songs/${songId}/album-tracks`),
+  getMusicBrainz: (songId: number) =>
+    client.get<MusicBrainzData>(`/songs/${songId}/musicbrainz`),
   
   getFeedback: (songId: number) =>
     client.post(`/songs/${songId}/feedback`),
@@ -60,6 +62,7 @@ export const emotionApi = {
 export const appleMusicApi = {
   recent: (limit = 10) => client.get('/apple-music/recent', { params: { limit } }),
   heavyRotation: (limit = 10) => client.get('/apple-music/heavy-rotation', { params: { limit } }),
+  library: (maxAlbums = 300) => client.get('/apple-music/library', { params: { max_albums: maxAlbums } }),
   search: (q: string, limit = 10) => client.get('/apple-music/search', { params: { q, limit } }),
 }
 

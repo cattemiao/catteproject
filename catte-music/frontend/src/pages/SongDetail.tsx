@@ -1,9 +1,9 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { ChevronRight, Disc, Heart, Music, Pause, Play, Radar, Sparkles } from 'lucide-react'
+import { ChevronRight, Disc, ExternalLink, Heart, Music, Pause, Play, Podcast, Radar, ShieldCheck, Sparkles } from 'lucide-react'
 import { emotionApi, songsApi } from '../api/client'
 import { loadMusicKit } from '../utils/musicKit'
-import type { FeedbackData, PredictionData, RadarData, ReviewData, SongOut } from '../types'
+import type { FeedbackData, MusicBrainzData, PredictionData, RadarData, ReviewData, SongOut } from '../types'
 
 // p5.js 粒子背景懒加载：不阻塞首屏
 const ParticleBg = lazy(() => import('../components/ParticleBg'))
@@ -29,6 +29,32 @@ function formatTime(seconds: number): string {
   return `${m}:${String(s).padStart(2, '0')}`
 }
 
+function fmtDuration(ms: number): string {
+  const m = Math.floor(ms / 60000)
+  const s = Math.floor((ms % 60000) / 1000)
+  return `${m}:${String(s).padStart(2, '0')}`
+}
+
+/** 从 raw_meta 提取 Apple Music / 网易云的补充字段（发行日期、曲目数、流派） */
+function extractMeta(song: SongOut): { releaseDate?: string; trackCount?: number; genres: string[] } {
+  const raw = song.raw_meta ?? {}
+  const attrs =
+    raw.attributes && typeof raw.attributes === 'object' ? raw.attributes : raw
+  if (song.platform === 'netease') {
+    // 网易云：专辑发行时间在 al.publishTime（毫秒时间戳）
+    const publish = raw.al?.publishTime
+    if (typeof publish === 'number' && publish > 0) {
+      return { releaseDate: new Date(publish).toISOString().slice(0, 10), genres: [] }
+    }
+    return { genres: [] }
+  }
+  return {
+    releaseDate: attrs.releaseDate,
+    trackCount: attrs.trackCount,
+    genres: Array.isArray(attrs.genreNames) ? attrs.genreNames : [],
+  }
+}
+
 export default function SongDetail() {
   const { id } = useParams<{ id: string }>()
   const [song, setSong] = useState<SongOut | null>(null)
@@ -50,6 +76,7 @@ export default function SongDetail() {
   const [useMusicKit, setUseMusicKit] = useState(false)
   const [musicKitAuthorized, setMusicKitAuthorized] = useState(false)
   const [feedback, setFeedback] = useState<FeedbackData | null>(null)
+  const [musicBrainz, setMusicBrainz] = useState<MusicBrainzData | null>(null)
 
   const audioRef = useRef<HTMLAudioElement | null>(null)
   const progressRef = useRef<HTMLInputElement | null>(null)
@@ -84,6 +111,7 @@ export default function SongDetail() {
     emotionApi.getSongEmotion(songId).then(({ data }) => setPrediction(data)).catch(() => {})
     songsApi.getReview(songId).then(({ data }) => setReview(data)).catch(() => {})
     songsApi.getFeedback(songId).then(({ data }) => setFeedback(data)).catch(() => {})
+    songsApi.getMusicBrainz(songId).then(({ data }) => setMusicBrainz(data)).catch(() => {})
   }, [id])
 
   // MusicKit player event listeners
@@ -224,6 +252,8 @@ export default function SongDetail() {
   }
 
   const isAlbum = song?.type === 'albums'
+  // 基本信息补充字段（发行日期/曲目数/流派），渲染前提取一次
+  const basicMeta = song ? extractMeta(song) : null
 
   const loadAlbumTracks = async () => {
     if (!id) return
@@ -349,11 +379,120 @@ export default function SongDetail() {
             </button>
           )}
 
-          {/* 评价（来自 Apple Music Editorial） */}
-          {review && (
+          {/* 基本信息（MusicBrainz 卡片风格，来源 Apple Music / 网易云音乐） */}
+          {review?.source === '基本信息' && song && (
+            <div className="glass mt-4 p-4 rounded-xl text-left space-y-3">
+              <div className="flex items-center justify-between">
+                <p className="text-xs text-slate-400 font-medium flex items-center gap-1.5">
+                  {song.type === 'albums' ? (
+                    <Disc className="w-3.5 h-3.5 text-neon-cyan" />
+                  ) : (
+                    <Music className="w-3.5 h-3.5 text-neon-cyan" />
+                  )}
+                  基本信息
+                </p>
+                <span className="text-[10px] text-slate-500 flex items-center gap-1">
+                  {song.platform === 'netease' ? (
+                    <Podcast className="w-3 h-3 text-red-400" />
+                  ) : (
+                    <Music className="w-3 h-3 text-neon-cyan" />
+                  )}
+                  信息来自 {song.platform === 'netease' ? '网易云音乐' : 'Apple Music'}
+                </span>
+              </div>
+              <div className="rounded-lg bg-white/[0.03] border border-white/5 p-3 space-y-1.5">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-sm font-medium text-white truncate">{song.title}</p>
+                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-neon-cyan/10 text-neon-cyan flex-shrink-0">
+                    {song.type === 'albums' ? '专辑' : '单曲'}
+                  </span>
+                </div>
+                {song.artist && <p className="text-xs text-slate-500">{song.artist}</p>}
+                <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-500">
+                  {song.album && <span>收录专辑：{song.album}</span>}
+                  {song.duration_ms ? <span>时长：{fmtDuration(song.duration_ms)}</span> : null}
+                  {basicMeta?.releaseDate && <span>发行日期：{basicMeta.releaseDate}</span>}
+                  {basicMeta?.trackCount ? <span>曲目数：{basicMeta.trackCount}</span> : null}
+                  {basicMeta && basicMeta.genres.length > 0 && (
+                    <span>流派：{basicMeta.genres.join('、')}</span>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* 平台官方评价（Apple Music Editorial） */}
+          {review && review.source !== '基本信息' && (
             <div className="glass mt-4 p-4 rounded-xl text-left">
               <p className="text-slate-300 text-sm leading-relaxed">{review.review}</p>
-              <p className="text-slate-500 text-xs mt-2">— {review.source}</p>
+              <div className="flex items-center gap-1.5 mt-2">
+                {song?.platform === 'netease' ? (
+                  <Podcast className="w-3 h-3 text-red-400 flex-shrink-0" />
+                ) : (
+                  <Music className="w-3 h-3 text-neon-cyan flex-shrink-0" />
+                )}
+                <p className="text-slate-500 text-xs">
+                  — {review.source}
+                  <span className="text-slate-600">
+                    {song?.platform === 'netease' ? ' · 来自 网易云音乐' : ' · 来自 Apple Music'}
+                  </span>
+                </p>
+              </div>
+            </div>
+          )}
+
+          {/* MusicBrainz 权威信息（位于多源公认度评估上方） */}
+          {musicBrainz?.found && musicBrainz.items.length > 0 && (
+            <div className="glass mt-4 p-4 rounded-xl text-left space-y-3">
+              <div className="flex items-center justify-between">
+                <p className="text-xs text-slate-400 font-medium flex items-center gap-1.5">
+                  <ShieldCheck className="w-3.5 h-3.5 text-neon-cyan" />
+                  MusicBrainz 权威信息
+                </p>
+                <span className="text-[10px] text-slate-500">信息来自 MusicBrainz</span>
+              </div>
+              {musicBrainz.items.slice(0, 3).map((item) => (
+                <div key={item.mbid} className="rounded-lg bg-white/[0.03] border border-white/5 p-3 space-y-1.5">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-sm font-medium text-white truncate">{item.title}</p>
+                    {item.type && (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-neon-cyan/10 text-neon-cyan flex-shrink-0">
+                        {item.type}
+                      </span>
+                    )}
+                  </div>
+                  {item.artist && <p className="text-xs text-slate-500">{item.artist}</p>}
+                  <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-500">
+                    {item.release_date && <span>发行日期：{item.release_date}</span>}
+                    {item.track_count != null && <span>曲目：{item.track_count} 首</span>}
+                    {typeof item.rating === 'number' && (
+                      <span>
+                        评分：{item.rating} / 5{item.rating_votes ? `（${item.rating_votes} 票）` : ''}
+                      </span>
+                    )}
+                  </div>
+                  {item.tags && item.tags.length > 0 && (
+                    <div className="flex flex-wrap gap-1">
+                      {item.tags.map((t) => (
+                        <span key={t} className="text-[10px] px-1.5 py-0.5 rounded bg-white/5 text-slate-400">
+                          {t}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  {item.url && (
+                    <a
+                      href={item.url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center gap-1 text-xs text-neon-cyan hover:underline"
+                    >
+                      查看 MusicBrainz 页面
+                      <ExternalLink className="w-3 h-3" />
+                    </a>
+                  )}
+                </div>
+              ))}
             </div>
           )}
 

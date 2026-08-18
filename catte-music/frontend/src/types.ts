@@ -19,6 +19,13 @@ export interface SongListOut {
   items: SongOut[]
 }
 
+export interface UserOut {
+  id: number
+  username: string
+  has_apple_music: boolean
+  has_netease: boolean
+}
+
 export interface PredictionData {
   song_id: number
   emotion: string

@@ -73,6 +73,18 @@ export default function Home() {
 
       // 3. 弹窗授权，获取 Music User Token
       const music = MusicKit.getInstance()
+
+      // 当前用户未绑定过 Apple Music 时，先清除浏览器缓存的 MusicKit 授权，
+      // 强制弹出 Apple ID 授权窗口，避免新账号沿用上一个账号的 Apple ID
+      const { data: me } = await authApi.me()
+      if (!me.has_apple_music) {
+        try {
+          await music.unauthorize()
+        } catch {
+          // 未授权状态下调用 unauthorize 会失败，忽略即可
+        }
+      }
+
       const musicUserToken = await music.authorize()
       if (!musicUserToken) {
         setSyncMsg('授权已取消')

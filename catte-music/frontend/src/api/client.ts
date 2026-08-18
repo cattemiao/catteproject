@@ -1,5 +1,5 @@
 import axios from 'axios'
-import type { MusicBrainzData, PredictionData, RadarData, ReviewData, SongListOut, SongOut, PreviewData, StyleRecommendResult } from '../types'
+import type { MusicBrainzData, PredictionData, RadarData, ReviewData, SongListOut, SongOut, PreviewData, StyleRecommendResult, UserOut } from '../types'
 import { getToken, clearToken } from '../utils/auth'
 
 const client = axios.create({ baseURL: '/api' })
@@ -28,7 +28,7 @@ export const authApi = {
     client.post('/auth/register', { username, password }),
   login: (username: string, password: string) =>
     client.post<{ access_token: string }>('/auth/login', { username, password }),
-  me: () => client.get('/auth/me'),
+  me: () => client.get<UserOut>('/auth/me'),
   appleMusicConfig: () =>
     client.get<{ developer_token: string; app_name: string; build: string }>('/auth/apple-music/config'),
   appleMusicCallback: (musicUserToken: string) =>

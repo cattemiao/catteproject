@@ -13,12 +13,17 @@ export default function Login() {
   const [mode, setMode] = useState<Mode>('login')
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setError('')
+    if (mode === 'register' && password !== confirmPassword) {
+      setError('两次输入的密码不一致')
+      return
+    }
     setLoading(true)
     try {
       if (mode === 'register') {
@@ -92,7 +97,10 @@ export default function Login() {
           {(['login', 'register'] as Mode[]).map((m) => (
             <button
               key={m}
-              onClick={() => setMode(m)}
+              onClick={() => {
+                setMode(m)
+                setConfirmPassword('')
+              }}
               className={`flex-1 py-2 rounded-lg text-sm font-medium transition-all ${
                 mode === m
                   ? 'bg-gradient-to-r from-neon-purple to-neon-blue text-white shadow-[0_0_15px_rgba(168,85,247,0.4)]'
@@ -133,6 +141,25 @@ export default function Login() {
               placeholder="至少 6 位"
             />
           </div>
+
+          {mode === 'register' && (
+            <div>
+              <label className="block text-sm text-slate-400 mb-1.5">确认密码</label>
+              <input
+                type="password"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                required
+                className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10
+                           focus:border-neon-purple/50 focus:outline-none focus:ring-2
+                           focus:ring-neon-purple/20 transition-all text-white placeholder:text-slate-600"
+                placeholder="再次输入密码"
+              />
+              {confirmPassword && password !== confirmPassword && (
+                <p className="text-xs text-red-400 mt-1.5">两次输入的密码不一致</p>
+              )}
+            </div>
+          )}
 
           {error && (
             <p className="text-sm text-red-400 bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2">

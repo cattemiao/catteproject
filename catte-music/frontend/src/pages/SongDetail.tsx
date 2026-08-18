@@ -401,33 +401,34 @@ export default function SongDetail() {
             </>
           )}
 
-          {/* 情绪标签 */}
-          {prediction ? (
-            <div
-              className="inline-flex items-center gap-2 mt-4 px-4 py-2 rounded-full"
-              style={{
-                background: `${emotionColor}20`,
-                border: `1px solid ${emotionColor}50`,
-              }}
-            >
-              <Sparkles className="w-4 h-4" style={{ color: emotionColor }} />
-              <span className="font-medium" style={{ color: emotionColor }}>
-                {prediction.emotion}
-              </span>
-              <span className="text-slate-500 text-sm">
-                · 置信度 {(prediction.confidence * 100).toFixed(0)}%
-              </span>
-            </div>
-          ) : (
+          {/* 情绪标签 + AI 分析按钮（始终展示按钮，已有预测时可重新分析） */}
+          <div className="flex items-center gap-2 mt-4 flex-wrap">
+            {prediction && (
+              <div
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-full"
+                style={{
+                  background: `${emotionColor}20`,
+                  border: `1px solid ${emotionColor}50`,
+                }}
+              >
+                <Sparkles className="w-4 h-4" style={{ color: emotionColor }} />
+                <span className="font-medium" style={{ color: emotionColor }}>
+                  {prediction.emotion}
+                </span>
+                <span className="text-slate-500 text-sm">
+                  · 置信度 {(prediction.confidence * 100).toFixed(0)}%
+                </span>
+              </div>
+            )}
             <button
               onClick={handleAnalyze}
               disabled={analyzing}
-              className="inline-flex items-center gap-2 mt-4 px-4 py-2 rounded-full text-sm border border-neon-purple/30 hover:border-neon-purple/60 transition-all"
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-full text-sm border border-neon-purple/30 hover:border-neon-purple/60 transition-all"
             >
               <Sparkles className="w-4 h-4 text-neon-purple" />
-              {analyzing ? '分析中...' : 'AI 情绪分析'}
+              {analyzing ? '分析中...' : prediction ? '重新AI分析' : 'AI分析'}
             </button>
-          )}
+          </div>
 
           {/* 基本信息（MusicBrainz 卡片风格，来源 Apple Music / 网易云音乐） */}
           {review?.source === '基本信息' && song && (
@@ -788,7 +789,7 @@ export default function SongDetail() {
             >
               <Radar className="w-8 h-8 text-slate-600 group-hover:text-neon-purple mx-auto mb-2 transition-colors" />
               <p className="text-slate-400 text-sm mb-1">暂无情绪分析数据</p>
-              <p className="text-xs text-slate-600 mb-3">点击「AI 情绪分析」按钮生成雷达图</p>
+              <p className="text-xs text-slate-600 mb-3">点击「AI分析」按钮生成雷达图</p>
               <span className="inline-flex items-center gap-1 text-xs font-medium text-neon-purple">
                 情绪雷达入口
                 <ChevronRight className="w-3.5 h-3.5 transition-transform group-hover:translate-x-0.5" />

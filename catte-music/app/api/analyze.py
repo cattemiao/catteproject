@@ -10,10 +10,11 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.deps import get_current_user
 from app.database import get_db
 from app.models.prediction import AiPrediction
 from app.models.song import Song, SongEmotion
-from app.models.user import Emotion
+from app.models.user import Emotion, User
 from app.schemas.emotion import PredictionOut
 from app.services.apple_music.auth import API_BASE, get_developer_token
 
@@ -138,8 +139,16 @@ def _classify_by_profile(
 
 
 @router.post("/songs/{song_id}/analyze", response_model=PredictionOut)
-async def analyze_song(song_id: int, db: AsyncSession = Depends(get_db)):
-    """对歌曲进行 AI 情绪分析。"""
+async def analyze_song(
+    song_id: int,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """对歌曲进行 AI 情绪分析。
+
+    试听音频来源：网易云歌曲优先取网易云官方试听（需绑定网易云账号），
+    获取失败时回退 Apple Music catalog 预览；Apple Music 歌曲直接搜预览。
+    """
     from app.services.ai.feature import extract_features
 
     result = await db.execute(select(Song).where(Song.id == song_id))
@@ -147,31 +156,57 @@ async def analyze_song(song_id: int, db: AsyncSession = Depends(get_db)):
     if not song:
         raise HTTPException(status_code=404, detail="歌曲不存在")
 
-    try:
-        preview_url = await _search_preview(song.title, song.artist)
-    except httpx.HTTPError:
-        raise HTTPException(status_code=502, detail="Apple Music 搜索失败，请稍后重试")
+    # 收集候选试听源，按顺序依次尝试
+    preview_urls: list[str] = []
+    if getattr(song, "platform", "apple") == "netease":
+        from app.services.netease import client as netease_client
 
-    if not preview_url:
+        cookies = (
+            netease_client.parse_cookie_str(user.netease_cookie)
+            if user.netease_cookie
+            else None
+        )
+        try:
+            url = await netease_client.get_song_url(cookies, song.netease_id)
+            if url:
+                preview_urls.append(url)
+        except Exception as exc:
+            logger.warning("网易云试听获取失败（%s）: %s", song.title, exc)
+
+    try:
+        apple_url = await _search_preview(song.title, song.artist)
+        if apple_url:
+            preview_urls.append(apple_url)
+    except httpx.HTTPError:
+        logger.warning("Apple Music 预览搜索失败: %s", song.title)
+
+    if not preview_urls:
         raise HTTPException(
             status_code=400,
-            detail=f"Apple Music 中未找到「{song.title}」的预览音频，无法分析",
+            detail=f"未找到「{song.title}」的可试听音频，无法进行情绪分析",
         )
 
-    with tempfile.NamedTemporaryFile(suffix=".m4a", delete=False) as tmp:
-        tmp_path = Path(tmp.name)
+    features = None
+    for preview_url in preview_urls:
+        # 网易云为 mp3，Apple Music 为 m4a；后缀与内容匹配更稳
+        suffix = ".mp3" if ".mp3" in preview_url.split("?")[0] else ".m4a"
+        with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
+            tmp_path = Path(tmp.name)
+        try:
+            await _download_preview(preview_url, tmp_path)
+            features = extract_features(tmp_path)
+            break
+        except Exception as exc:
+            logger.warning("试听音频分析失败（%s）: %s", song.title, exc)
+        finally:
+            if tmp_path.exists():
+                tmp_path.unlink()
 
-    try:
-        await _download_preview(preview_url, tmp_path)
-        features = extract_features(tmp_path)
-    except httpx.HTTPError as e:
-        raise HTTPException(status_code=502, detail=f"下载预览音频失败: {e}")
-    except Exception as e:
-        logger.exception("特征提取失败")
-        raise HTTPException(status_code=500, detail=f"特征提取失败: {e}")
-    finally:
-        if tmp_path.exists():
-            tmp_path.unlink()
+    if features is None:
+        raise HTTPException(
+            status_code=400,
+            detail=f"「{song.title}」的试听音频无法解析，无法进行情绪分析",
+        )
 
     emotion_name, confidence = _classify_by_profile(features)
 

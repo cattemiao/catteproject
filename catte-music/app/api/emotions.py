@@ -31,7 +31,7 @@ async def get_song_emotion(song_id: int, db: AsyncSession = Depends(get_db)):
     )
     pred = result.scalar_one_or_none()
     if not pred:
-        return PredictionOut(song_id=song_id, emotion="未知", color="#a855f7", confidence=0.0)
+        raise HTTPException(status_code=404, detail="该歌曲暂无情绪分析数据")
     return PredictionOut(
         song_id=song_id,
         emotion=pred.emotion_rel.name,

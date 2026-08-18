@@ -22,6 +22,23 @@ export default function SongRadar() {
   const [radar, setRadar] = useState<RadarData | null>(null)
   const [prediction, setPrediction] = useState<PredictionData | null>(null)
   const [loading, setLoading] = useState(true)
+  const [analyzing, setAnalyzing] = useState(false)
+
+  // 直接在当前页面触发 AI 分析，成功后刷新雷达数据
+  const handleAnalyze = async () => {
+    if (!id || analyzing) return
+    setAnalyzing(true)
+    try {
+      const { data } = await emotionApi.analyze(Number(id))
+      setPrediction(data)
+      const radarRes = await emotionApi.getRadar(Number(id))
+      setRadar(radarRes.data)
+    } catch (err: any) {
+      alert(err?.response?.data?.detail || '分析失败')
+    } finally {
+      setAnalyzing(false)
+    }
+  }
 
   useEffect(() => {
     if (!id) return
@@ -145,15 +162,16 @@ export default function SongRadar() {
             <Radar className="w-12 h-12 text-slate-600 mx-auto mb-4" />
             <p className="text-slate-300 font-medium mb-1">暂无情绪分析数据</p>
             <p className="text-sm text-slate-500 mb-6">
-              返回歌曲详情页，点击「AI 情绪分析」按钮即可生成专属情绪雷达图
+              点击下方按钮，AI 将分析试听音频并生成专属情绪雷达图
             </p>
-            <Link
-              to={`/song/${id}`}
-              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-medium border border-neon-purple/30 hover:border-neon-purple/60 transition-all"
+            <button
+              onClick={handleAnalyze}
+              disabled={analyzing}
+              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-medium border border-neon-purple/30 hover:border-neon-purple/60 transition-all disabled:opacity-60"
             >
               <Sparkles className="w-4 h-4 text-neon-purple" />
-              去分析
-            </Link>
+              {analyzing ? '分析中...' : '去分析'}
+            </button>
           </div>
         )}
       </div>

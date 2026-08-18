@@ -9,10 +9,13 @@ export default function SuggestionBox() {
   const [error, setError] = useState('')
   const [success, setSuccess] = useState(false)
 
-  // 成功提示 3 秒后自动消失
+  // 提交成功：显示成功提示 1 秒后自动关闭弹窗
   useEffect(() => {
     if (!success) return
-    const timer = setTimeout(() => setSuccess(false), 3000)
+    const timer = setTimeout(() => {
+      setOpen(false)
+      setSuccess(false)
+    }, 1000)
     return () => clearTimeout(timer)
   }, [success])
 

@@ -166,12 +166,39 @@ async def analyze_song(
             if user.netease_cookie
             else None
         )
-        try:
-            url = await netease_client.get_song_url(cookies, song.netease_id)
-            if url:
-                preview_urls.append(url)
-        except Exception as exc:
-            logger.warning("网易云试听获取失败（%s）: %s", song.title, exc)
+
+        song_type = getattr(song, "type", "song") or "song"
+        if song_type in ("albums", "playlists"):
+            # 专辑/歌单没有独立音频，取其前几首单曲的试听作为情绪代表
+            try:
+                if song_type == "playlists":
+                    tracks = await netease_client.get_playlist_tracks(
+                        song.netease_id, cookies, limit=5
+                    )
+                else:
+                    tracks = await netease_client.get_album_tracks(
+                        song.netease_id, cookies, limit=5
+                    )
+            except Exception as exc:
+                tracks = []
+                logger.warning("网易云%s曲目获取失败（%s）: %s", song_type, song.title, exc)
+            for track in tracks:
+                tid = track.get("netease_id")
+                if not tid:
+                    continue
+                try:
+                    url = await netease_client.get_song_url(cookies, tid)
+                    if url:
+                        preview_urls.append(url)
+                except Exception as exc:
+                    logger.warning("网易云单曲试听获取失败（%s）: %s", track.get("title"), exc)
+        else:
+            try:
+                url = await netease_client.get_song_url(cookies, song.netease_id)
+                if url:
+                    preview_urls.append(url)
+            except Exception as exc:
+                logger.warning("网易云试听获取失败（%s）: %s", song.title, exc)
 
     try:
         apple_url = await _search_preview(song.title, song.artist)

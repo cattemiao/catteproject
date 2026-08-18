@@ -88,7 +88,8 @@ export default function Layout({ children }: { children: ReactNode }) {
           ))}
           <SuggestionBox />
           {username && (
-            <div className="flex items-center gap-1.5 px-3 py-2 text-sm text-slate-300 ml-1 border-l border-white/10">
+            <div className="hidden md:flex items-center gap-1.5 px-3 py-2 text-sm text-slate-300 ml-1 border-l border-white/10">
+              {/* 仅桌面端（≥768px）显示用户名，移动端隐藏 */}
               <User className="w-4 h-4 text-neon-cyan flex-shrink-0" />
               <span className="max-w-[120px] truncate">{username}</span>
             </div>

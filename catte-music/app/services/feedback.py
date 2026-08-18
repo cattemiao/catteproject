@@ -240,8 +240,11 @@ def _compute_weighted_consensus(
         consensus_score = 0
 
     # 一致度评级
-    max_possible = sum(SOURCE_WEIGHTS.values())
-    normalized_score = consensus_score / max_possible if max_possible > 0 else 0
+    # 分母用「实际参与投票的源权重和」而非全部源权重和：
+    # 缺失的数据源（B站无结果、无编辑评价等）不应稀释一致度，
+    # 否则数据源越少一致度越低，单源时永远达不到「高」。
+    total_weight = sum(w for _, _, w, _ in source_votes)
+    normalized_score = consensus_score / total_weight if total_weight > 0 else 0
 
     agreement = (
         "高" if normalized_score >= 0.5

@@ -1,4 +1,5 @@
 """数据库模型汇总导入，确保所有模型注册到 Base.metadata。"""
+from app.models.pageview import PageView
 from app.models.prediction import AiPrediction
 from app.models.song import CrawlRecord, Song, SongEmotion, SongTag, Tag
 from app.models.suggestion import Suggestion
@@ -16,4 +17,5 @@ __all__ = [
     "SongTag",
     "AiPrediction",
     "Suggestion",
+    "PageView",
 ]

@@ -27,7 +27,7 @@ export const authApi = {
   register: (username: string, password: string) =>
     client.post('/auth/register', { username, password }),
   login: (username: string, password: string) =>
-    client.post<{ access_token: string }>('/auth/login', { username, password }),
+    client.post<{ access_token: string; is_admin?: boolean }>('/auth/login', { username, password }),
   me: () => client.get<UserOut>('/auth/me'),
   appleMusicConfig: () =>
     client.get<{ developer_token: string; app_name: string; build: string }>('/auth/apple-music/config'),
@@ -95,6 +95,79 @@ export interface SuggestionOut {
 export const suggestionApi = {
   list: () => client.get<SuggestionOut[]>('/suggestions'),
   create: (content: string) => client.post<SuggestionOut>('/suggestions', { content }),
+}
+
+// ───────────────────────── 管理后台 ─────────────────────────
+
+export interface AdminUserOut {
+  id: number
+  username: string
+  has_apple_music: boolean
+  has_netease: boolean
+  song_count: number
+  favorite_count: number
+  suggestion_count: number
+  created_at: string
+}
+
+export interface AdminSuggestionOut {
+  id: number
+  user_id: number | null
+  username: string
+  content: string
+  created_at: string
+}
+
+export interface DashboardStat {
+  date: string
+  count: number
+}
+
+export interface SongPlatformStat {
+  platform: string
+  type: string
+  count: number
+}
+
+export interface EmotionDistStat {
+  name: string
+  color: string
+  count: number
+}
+
+export interface EmotionDimensionStat {
+  dimension: string
+  avg: number
+  count: number
+}
+
+export interface DashboardData {
+  total_users: number
+  total_songs: number
+  total_analyses: number
+  total_visits: number
+  visits_by_day: DashboardStat[]
+  analysis_by_day: DashboardStat[]
+  songs_by_platform: SongPlatformStat[]
+  emotion_distribution: EmotionDistStat[]
+  emotion_dimensions: EmotionDimensionStat[]
+}
+
+export const adminApi = {
+  users: () => client.get<AdminUserOut[]>('/admin/users'),
+  deleteUser: (userId: number) => client.delete(`/admin/users/${userId}`),
+  resetPassword: (userId: number, newPassword: string) =>
+    client.post(`/admin/users/${userId}/reset-password`, { new_password: newPassword }),
+  suggestions: () => client.get<AdminSuggestionOut[]>('/admin/suggestions'),
+  updateSuggestion: (suggestionId: number, content: string) =>
+    client.patch<AdminSuggestionOut>(`/admin/suggestions/${suggestionId}`, { content }),
+  deleteSuggestion: (suggestionId: number) =>
+    client.delete(`/admin/suggestions/${suggestionId}`),
+  dashboard: () => client.get<DashboardData>('/admin/stats/dashboard'),
+}
+
+export const statsApi = {
+  pageview: (path: string) => client.post('/stats/pageview', { path }),
 }
 
 export default client

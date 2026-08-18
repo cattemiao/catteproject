@@ -31,6 +31,11 @@ export default function Login() {
       }
       const { data } = await authApi.login(username, password)
       setToken(data.access_token)
+      // 管理员账号登录后自动进入管理后台
+      if (data.is_admin) {
+        navigate('/admin')
+        return
+      }
       navigate(platform === 'netease' ? '/netease' : '/')
     } catch (err: unknown) {
       const msg =

@@ -20,6 +20,8 @@ router = APIRouter(prefix="/api/auth", tags=["认证"])
 
 @router.post("/register", response_model=UserOut, status_code=status.HTTP_201_CREATED)
 async def register(data: UserRegister, db: AsyncSession = Depends(get_db)):
+    if data.username == settings.admin_username:
+        raise HTTPException(status_code=400, detail=f"「{settings.admin_username}」为保留账号，不可注册")
     existing = await db.execute(select(User).where(User.username == data.username))
     if existing.scalar_one_or_none():
         raise HTTPException(status_code=400, detail="用户名已存在")
@@ -35,6 +37,13 @@ async def register(data: UserRegister, db: AsyncSession = Depends(get_db)):
 
 @router.post("/login", response_model=Token)
 async def login(data: UserLogin, db: AsyncSession = Depends(get_db)):
+    # 管理员：密码由 .env 的 ADMIN_PASSWORD 设置，不落库
+    if data.username == settings.admin_username:
+        if not settings.admin_password or data.password != settings.admin_password:
+            raise HTTPException(status_code=401, detail="用户名或密码错误")
+        token = create_access_token(data.username)
+        return Token(access_token=token, is_admin=True)
+
     result = await db.execute(select(User).where(User.username == data.username))
     user = result.scalar_one_or_none()
     if not user or not verify_password(data.password, user.password_hash):

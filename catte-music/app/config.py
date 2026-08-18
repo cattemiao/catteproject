@@ -17,6 +17,10 @@ class Settings(BaseSettings):
     # session 超时时间（分钟），可通过环境变量 ACCESS_TOKEN_EXPIRE_MINUTES 覆盖
     access_token_expire_minutes: int = 60
 
+    # 管理员账号（密码来自环境变量，不落库；留空则禁用 admin 登录）
+    admin_username: str = "admin"
+    admin_password: str = ""
+
     # Apple Music
     apple_music_key_id: str = ""
     apple_music_team_id: str = ""

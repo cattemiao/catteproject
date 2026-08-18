@@ -6,6 +6,8 @@ import { neteaseApi, songsApi } from '../api/client'
 import ParticleBg from '../components/ParticleBg'
 import type { SongOut } from '../types'
 
+const PAGE_SIZE = 20
+
 export default function NeteaseHome() {
   const [bound, setBound] = useState(false)
   const [nickname, setNickname] = useState('')
@@ -16,18 +18,26 @@ export default function NeteaseHome() {
   const [syncing, setSyncing] = useState(false)
   const [syncMsg, setSyncMsg] = useState('')
   const [songs, setSongs] = useState<SongOut[]>([])
+  const [page, setPage] = useState(1)
+  const [total, setTotal] = useState(0)
   const [searchQ, setSearchQ] = useState('')
   const [searching, setSearching] = useState(false)
   const [clearing, setClearing] = useState(false)
   const [clearMsg, setClearMsg] = useState('')
   const pollTimer = useRef<number | null>(null)
 
-  const loadSongs = () => {
+  const loadSongs = (targetPage = 1) => {
     // 拉取网易云平台的歌曲
-    songsApi.list({ size: 20, platform: 'netease' })
-      .then(({ data }) => setSongs(data.items))
+    songsApi.list({ page: targetPage, size: PAGE_SIZE, platform: 'netease' })
+      .then(({ data }) => {
+        setSongs(data.items)
+        setTotal(data.total)
+        setPage(targetPage)
+      })
       .catch(() => {})
   }
+
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))
 
   const clearNetease = async () => {
     if (!window.confirm('确定清空已导入的网易云歌曲吗？清空后可重新同步。')) return
@@ -36,6 +46,8 @@ export default function NeteaseHome() {
     try {
       const { data } = await songsApi.clear('netease')
       setSongs([])
+      setPage(1)
+      setTotal(0)
       setClearMsg(`已清空 ${data.deleted} 首，可重新同步`)
     } catch {
       setClearMsg('清空失败，请重试')
@@ -108,8 +120,13 @@ export default function NeteaseHome() {
     setSyncing(true)
     setSyncMsg('')
     try {
-      const { data } = await neteaseApi.syncRecent(10)
-      setSyncMsg(`同步成功！新增 ${data.synced} 首`)
+      // 第一步：最近播放
+      const { data: recent } = await neteaseApi.syncRecent(10)
+      // 第二步：音乐库（收藏的专辑 + 收藏的歌单）
+      const { data: lib } = await neteaseApi.library(100)
+      setSyncMsg(
+        `同步成功！新增最近播放 ${recent.synced} 首 + 音乐库（专辑 ${lib.albums.length} 张、歌单 ${lib.playlists.length} 个）`,
+      )
       loadSongs()
     } catch (err: unknown) {
       const msg =
@@ -128,6 +145,7 @@ export default function NeteaseHome() {
     try {
       const { data } = await neteaseApi.search(searchQ, 10)
       setSongs(data)
+      setTotal(0) // 搜索结果不分页，隐藏翻页
     } catch {
       setSyncMsg('搜索失败，请重试')
     } finally {
@@ -254,6 +272,27 @@ export default function NeteaseHome() {
             {songs.map((song) => (
               <NeteaseSongCard key={song.id} song={song} />
             ))}
+          </div>
+        )}
+        {total > PAGE_SIZE && (
+          <div className="flex items-center justify-center gap-4 mt-8">
+            <button
+              onClick={() => loadSongs(page - 1)}
+              disabled={page <= 1}
+              className="px-4 py-2 rounded-xl border border-white/10 text-sm text-slate-400 hover:text-white hover:border-red-500/40 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              上一页
+            </button>
+            <span className="text-sm text-slate-500">
+              第 {page} / {totalPages} 页 · 共 {total} 首
+            </span>
+            <button
+              onClick={() => loadSongs(page + 1)}
+              disabled={page >= totalPages}
+              className="px-4 py-2 rounded-xl border border-white/10 text-sm text-slate-400 hover:text-white hover:border-red-500/40 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              下一页
+            </button>
           </div>
         )}
       </section>

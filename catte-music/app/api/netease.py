@@ -133,6 +133,154 @@ async def sync_recent(
     }
 
 
+@router.get("/library")
+async def sync_library(
+    limit: int = Query(100, ge=1, le=200),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """同步网易云音乐库（收藏的专辑 + 收藏的歌单）到本地库，便于浏览完整收藏。"""
+    if not user.netease_cookie:
+        raise HTTPException(status_code=401, detail="尚未绑定网易云账号")
+    if not user.netease_uid:
+        raise HTTPException(status_code=400, detail="缺少网易云用户信息，请重新扫码登录")
+
+    cookies = netease_client.parse_cookie_str(user.netease_cookie)
+    try:
+        albums = await netease_client.get_subscribed_albums(cookies, limit=limit)
+        playlists = await netease_client.get_subscribed_playlists(cookies, int(user.netease_uid), limit=limit)
+    except Exception as exc:
+        logger.warning("网易云音乐库获取失败: %s", exc)
+        raise HTTPException(status_code=502, detail="网易云接口请求失败，可能是登录已过期，请重新扫码")
+
+    created_albums: list[Song] = []
+    for item in albums:
+        album_id = item.get("netease_id", "")
+        if not album_id:
+            continue
+        # 去重：该用户下 netease_id 已存在则跳过
+        exists = await db.execute(
+            select(Song).where(
+                Song.platform == "netease",
+                Song.netease_id == album_id,
+                Song.user_id == user.id,
+            )
+        )
+        if exists.scalar_one_or_none():
+            continue
+
+        raw_meta = {
+            **item.get("raw", {}),
+            "cover_url": item.get("cover_url", ""),
+            "publish_time": item.get("publish_time"),
+            "track_count": item.get("track_count"),
+        }
+        song = Song(
+            apple_music_id=f"netese-{user.id}-{album_id}",
+            platform="netease",
+            netease_id=album_id,
+            user_id=user.id,
+            title=(item.get("title") or "")[:256],
+            artist=(item.get("artist") or "")[:256],
+            album=(item.get("album") or "")[:256],
+            type="albums",
+            raw_meta=raw_meta,
+        )
+        db.add(song)
+        await db.flush()
+        created_albums.append(song)
+
+    created_playlists: list[Song] = []
+    for item in playlists:
+        pl_id = item.get("netease_id", "")
+        if not pl_id:
+            continue
+        # 去重：该用户下 netease_id 已存在则跳过
+        exists = await db.execute(
+            select(Song).where(
+                Song.platform == "netease",
+                Song.netease_id == pl_id,
+                Song.user_id == user.id,
+            )
+        )
+        if exists.scalar_one_or_none():
+            continue
+
+        raw_meta = {
+            **item.get("raw", {}),
+            "cover_url": item.get("cover_url", ""),
+            "track_count": item.get("track_count"),
+        }
+        song = Song(
+            apple_music_id=f"netese-{user.id}-{pl_id}",
+            platform="netease",
+            netease_id=pl_id,
+            user_id=user.id,
+            title=(item.get("title") or "")[:256],
+            artist=(item.get("artist") or "")[:256],
+            album=(item.get("album") or "")[:256],
+            type="playlists",
+            raw_meta=raw_meta,
+        )
+        db.add(song)
+        await db.flush()
+        created_playlists.append(song)
+
+    await db.commit()
+
+    return {
+        "synced": len(created_albums) + len(created_playlists),
+        "albums": [_song_to_out(s) for s in created_albums],
+        "playlists": [_song_to_out(s) for s in created_playlists],
+    }
+
+
+@router.get("/track-url")
+async def get_track_url(
+    netease_id: str = Query(..., min_length=1),
+    user: User = Depends(get_current_user),
+):
+    """按网易云歌曲 id 获取试听音频 URL（用于专辑/歌单曲目行试听）。"""
+    if not user.netease_cookie:
+        raise HTTPException(status_code=401, detail="尚未绑定网易云账号")
+    cookies = netease_client.parse_cookie_str(user.netease_cookie)
+    try:
+        url = await netease_client.get_song_url(cookies, netease_id)
+    except Exception as exc:
+        logger.warning("网易云单曲试听获取失败: %s", exc)
+        raise HTTPException(status_code=502, detail="网易云接口请求失败，可能是登录已过期，请重新扫码")
+    if not url:
+        raise HTTPException(status_code=404, detail="未获取到该歌曲的试听音频")
+    return {"preview_url": url}
+
+
+@router.get("/preview/{song_id}")
+async def get_preview(
+    song_id: int,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """获取网易云歌曲的试听音频 URL（实时获取，URL 有时效）。"""
+    if not user.netease_cookie:
+        raise HTTPException(status_code=401, detail="尚未绑定网易云账号")
+    result = await db.execute(select(Song).where(Song.id == song_id))
+    song = result.scalar_one_or_none()
+    if not song:
+        raise HTTPException(status_code=404, detail="歌曲不存在")
+    if song.platform != "netease" or not song.netease_id:
+        raise HTTPException(status_code=400, detail="该歌曲不是网易云歌曲")
+
+    cookies = netease_client.parse_cookie_str(user.netease_cookie)
+    try:
+        url = await netease_client.get_song_url(cookies, song.netease_id)
+    except Exception as exc:
+        logger.warning("网易云试听获取失败: %s", exc)
+        raise HTTPException(status_code=502, detail="网易云接口请求失败，可能是登录已过期，请重新扫码")
+    if not url:
+        raise HTTPException(status_code=404, detail="未获取到该歌曲的试听音频")
+    return {"preview_url": url, "title": song.title, "artist": song.artist}
+
+
 @router.get("/search", response_model=list[SongOut])
 async def search(
     q: str = Query(..., min_length=1),

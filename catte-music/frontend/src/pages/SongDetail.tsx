@@ -1,7 +1,7 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { ChevronRight, Disc, ExternalLink, Heart, Music, Pause, Play, Podcast, Radar, ShieldCheck, Sparkles } from 'lucide-react'
-import { emotionApi, songsApi } from '../api/client'
+import { ChevronRight, Disc, ExternalLink, Heart, ListMusic, Music, Pause, Play, Podcast, Radar, RefreshCw, ShieldCheck, Sparkles } from 'lucide-react'
+import { emotionApi, neteaseApi, songsApi } from '../api/client'
 import { loadMusicKit } from '../utils/musicKit'
 import type { FeedbackData, MusicBrainzData, PredictionData, RadarData, ReviewData, SongOut } from '../types'
 
@@ -70,6 +70,9 @@ export default function SongDetail() {
   const [albumLoading, setAlbumLoading] = useState(false)
   const [trackAudio, setTrackAudio] = useState<string | null>(null)
   const [trackPlaying, setTrackPlaying] = useState(false)
+  // 网易云曲目行按需获取到的试听 URL 缓存（key 为 netease_id）
+  const [trackUrls, setTrackUrls] = useState<Record<string, string>>({})
+  const [loadingTrackId, setLoadingTrackId] = useState<string | null>(null)
   const [currentTime, setCurrentTime] = useState(0)
   const [duration, setDuration] = useState(0)
   const [seeking, setSeeking] = useState(false)
@@ -164,8 +167,19 @@ export default function SongDetail() {
     if (!id) return
     setPreviewLoading(true)
     try {
-      const { data } = await songsApi.getPreview(Number(id))
-      setPreviewUrl(data.preview_url)
+      let url: string | null = null
+      // 网易云歌曲优先尝试网易云官方试听音频，失败时回退 Apple Music 预览
+      if (song?.platform === 'netease') {
+        try {
+          const { data } = await neteaseApi.preview(Number(id))
+          url = data.preview_url
+        } catch { /* 回退 Apple Music */ }
+      }
+      if (!url) {
+        const { data } = await songsApi.getPreview(Number(id))
+        url = data.preview_url
+      }
+      setPreviewUrl(url)
       setTimeout(() => {
         audioRef.current?.play().then(() => setPlaying(true)).catch(() => {})
       }, 500)
@@ -252,6 +266,9 @@ export default function SongDetail() {
   }
 
   const isAlbum = song?.type === 'albums'
+  const isPlaylist = song?.type === 'playlists'
+  // 专辑/歌单均展示曲目列表
+  const showTracks = isAlbum || isPlaylist
   // 基本信息补充字段（发行日期/曲目数/流派），渲染前提取一次
   const basicMeta = song ? extractMeta(song) : null
 
@@ -268,7 +285,7 @@ export default function SongDetail() {
     }
   }
 
-  const playTrack = (url: string) => {
+  const playTrackUrl = (url: string) => {
     setUseMusicKit(false)
     setTrackAudio(url)
     setTrackPlaying(true)
@@ -277,10 +294,40 @@ export default function SongDetail() {
     }, 100)
   }
 
-  // Load album tracks on mount if it's an album
+  // 播放专辑/歌单曲目：网易云歌曲按需获取试听 URL
+  const playTrack = async (track: AlbumTrack) => {
+    let url = track.preview_url || trackUrls[track.id]
+    if (!url && song?.platform === 'netease') {
+      setLoadingTrackId(track.id)
+      try {
+        const { data } = await neteaseApi.trackUrl(track.id)
+        url = data.preview_url
+        setTrackUrls((prev) => ({ ...prev, [track.id]: url }))
+      } catch (err: any) {
+        alert(err?.response?.data?.detail || '获取试听失败')
+        setLoadingTrackId(null)
+        return
+      }
+      setLoadingTrackId(null)
+    }
+    if (url) playTrackUrl(url)
+  }
+
+  // 曲目行按钮：再次点击正在播放的曲目则暂停
+  const toggleTrack = (track: AlbumTrack) => {
+    const url = track.preview_url || trackUrls[track.id]
+    if (url && trackAudio === url && trackPlaying) {
+      audioRef.current?.pause()
+      setTrackPlaying(false)
+      return
+    }
+    void playTrack(track)
+  }
+
+  // Load album/playlist tracks on mount
   useEffect(() => {
-    if (isAlbum) loadAlbumTracks()
-  }, [isAlbum, id])
+    if (showTracks) loadAlbumTracks()
+  }, [showTracks, id])
 
   const hasAudio = previewUrl || trackAudio || (musicKitAuthorized && song?.apple_music_id)
 
@@ -320,6 +367,8 @@ export default function SongDetail() {
               />
             ) : isAlbum ? (
               <Disc className="w-16 h-16 text-white/50" />
+            ) : isPlaylist ? (
+              <ListMusic className="w-16 h-16 text-white/50" />
             ) : (
               <Music className="w-16 h-16 text-white/50" />
             )}
@@ -330,7 +379,8 @@ export default function SongDetail() {
               {/* 歌名 */}
               <h1 className="font-display text-2xl sm:text-3xl font-bold mb-1">
                 {isAlbum && <Disc className="w-5 h-5 inline mr-2 text-neon-purple/70" />}
-                {!isAlbum && <Music className="w-5 h-5 inline mr-2 text-neon-cyan/70" />}
+                {isPlaylist && <ListMusic className="w-5 h-5 inline mr-2 text-red-400/70" />}
+                {!isAlbum && !isPlaylist && <Music className="w-5 h-5 inline mr-2 text-neon-cyan/70" />}
                 {song.title}
               </h1>
               <p className="text-slate-400 mb-1">{song.artist}</p>
@@ -404,7 +454,7 @@ export default function SongDetail() {
                 <div className="flex items-center justify-between gap-2">
                   <p className="text-sm font-medium text-white truncate">{song.title}</p>
                   <span className="text-[10px] px-1.5 py-0.5 rounded bg-neon-cyan/10 text-neon-cyan flex-shrink-0">
-                    {song.type === 'albums' ? '专辑' : '单曲'}
+                    {song.type === 'albums' ? '专辑' : song.type === 'playlists' ? '歌单' : '单曲'}
                   </span>
                 </div>
                 {song.artist && <p className="text-xs text-slate-500">{song.artist}</p>}
@@ -641,16 +691,21 @@ export default function SongDetail() {
           {/* 播放 + 收藏按钮 */}
           <div className="flex flex-col items-center lg:items-start gap-3 mt-6">
             <div className="flex items-center gap-3">
-              {song?.platform === 'netease' && !previewUrl ? (
-                <span className="px-4 py-3 rounded-xl bg-white/5 text-slate-500 text-sm">
-                  暂无试听（网易云音频暂未接入）
-                </span>
+              {song?.platform === 'netease' && !previewUrl && !useMusicKit ? (
+                <button
+                  onClick={fetchPreview}
+                  disabled={previewLoading}
+                  className="btn-neon"
+                >
+                  <Play className="w-4 h-4" />
+                  {previewLoading ? '获取中...' : '试听'}
+                </button>
               ) : useMusicKit ? (
                 <button onClick={togglePlay} className="btn-neon">
                   {playing ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
                   {playing ? '暂停' : '继续'}
                 </button>
-              ) : musicKitAuthorized && song?.apple_music_id ? (
+              ) : musicKitAuthorized && song?.apple_music_id && song?.platform !== 'netease' ? (
                 <button onClick={playFullSong} className="btn-neon">
                   <Play className="w-4 h-4" />
                   播放整首
@@ -743,49 +798,63 @@ export default function SongDetail() {
         </div>
       </div>
 
-      {/* 专辑曲目列表 */}
-      {isAlbum && (
+      {/* 专辑/歌单曲目列表 */}
+      {showTracks && (
         <div className="mt-8 glass p-6">
           <h2 className="font-display text-lg font-bold mb-4 flex items-center gap-2">
-            <Disc className="w-5 h-5 text-neon-purple" />
-            专辑曲目
+            {isAlbum ? (
+              <Disc className="w-5 h-5 text-neon-purple" />
+            ) : (
+              <ListMusic className="w-5 h-5 text-red-400" />
+            )}
+            {isPlaylist ? '歌单歌曲' : '专辑曲目'}
             {albumLoading && <span className="text-sm text-slate-500">加载中...</span>}
           </h2>
           {albumTracks.length > 0 ? (
             <div className="space-y-1">
-              {albumTracks.map((track) => (
-                <div
-                  key={track.id}
-                  className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-white/[0.04] transition-all group"
-                >
-                  <span className="text-xs text-slate-500 w-6 text-right">
-                    {track.track_number || '-'}
-                  </span>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm truncate group-hover:text-neon-cyan transition-colors">
-                      {track.title}
-                    </p>
-                    <p className="text-xs text-slate-500 truncate">{track.artist}</p>
-                  </div>
-                  {track.duration_ms && (
-                    <span className="text-xs text-slate-500">
-                      {Math.floor(track.duration_ms / 60000)}:{String(Math.floor((track.duration_ms % 60000) / 1000)).padStart(2, '0')}
+              {albumTracks.map((track) => {
+                const trackUrl = track.preview_url || trackUrls[track.id]
+                const isCurrent = trackUrl && trackAudio === trackUrl && trackPlaying
+                const isLoading = loadingTrackId === track.id
+                // 网易云曲目始终显示播放按钮（按需获取试听）；Apple Music 仅在有预览时显示
+                const canPlay = song?.platform === 'netease' || Boolean(trackUrl)
+                return (
+                  <div
+                    key={track.id}
+                    className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-white/[0.04] transition-all group"
+                  >
+                    <span className="text-xs text-slate-500 w-6 text-right">
+                      {track.track_number || '-'}
                     </span>
-                  )}
-                  {track.preview_url && (
-                    <button
-                      onClick={() => playTrack(track.preview_url!)}
-                      className="p-2 rounded-lg hover:bg-neon-purple/10 transition-all"
-                    >
-                      {trackAudio === track.preview_url && trackPlaying ? (
-                        <Pause className="w-4 h-4 text-neon-purple" />
-                      ) : (
-                        <Play className="w-4 h-4 text-slate-400 group-hover:text-neon-purple transition-colors" />
-                      )}
-                    </button>
-                  )}
-                </div>
-              ))}
+                    <div className="flex-1 min-w-0">
+                      <p className={`text-sm truncate transition-colors ${isCurrent ? 'text-neon-purple' : 'group-hover:text-neon-cyan'}`}>
+                        {track.title}
+                      </p>
+                      <p className="text-xs text-slate-500 truncate">{track.artist}</p>
+                    </div>
+                    {track.duration_ms && (
+                      <span className="text-xs text-slate-500">
+                        {Math.floor(track.duration_ms / 60000)}:{String(Math.floor((track.duration_ms % 60000) / 1000)).padStart(2, '0')}
+                      </span>
+                    )}
+                    {canPlay && (
+                      <button
+                        onClick={() => toggleTrack(track)}
+                        disabled={isLoading}
+                        className="p-2 rounded-lg hover:bg-neon-purple/10 transition-all disabled:opacity-50"
+                      >
+                        {isLoading ? (
+                          <RefreshCw className="w-4 h-4 animate-spin text-neon-purple" />
+                        ) : isCurrent ? (
+                          <Pause className="w-4 h-4 text-neon-purple" />
+                        ) : (
+                          <Play className="w-4 h-4 text-slate-400 group-hover:text-neon-purple transition-colors" />
+                        )}
+                      </button>
+                    )}
+                  </div>
+                )
+              })}
             </div>
           ) : !albumLoading ? (
             <p className="text-slate-500 text-center py-8">暂无曲目数据</p>

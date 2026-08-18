@@ -202,14 +202,48 @@ async def get_song_musicbrainz(song_id: int, db: AsyncSession = Depends(get_db))
 
 
 @router.get("/{song_id}/album-tracks")
-async def get_album_tracks(song_id: int, db: AsyncSession = Depends(get_db)):
-    """专辑曲目：优先返回资料库同步时保存的曲目，否则从 Apple Music catalog 拉取。"""
+async def get_album_tracks(
+    song_id: int,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """专辑/歌单曲目：网易云实时走网易云接口；Apple Music 优先用同步曲目，否则从 catalog 拉取。"""
     result = await db.execute(select(Song).where(Song.id == song_id))
     song = result.scalar_one_or_none()
     if not song:
         raise HTTPException(status_code=404, detail="歌曲不存在")
-    if getattr(song, "type", "song") != "albums":
-        raise HTTPException(status_code=400, detail="该条目不是专辑")
+    if getattr(song, "type", "song") not in ("albums", "playlists"):
+        raise HTTPException(status_code=400, detail="该条目不是专辑或歌单")
+
+    # 网易云：实时从网易云接口拉取专辑/歌单曲目
+    if getattr(song, "platform", "apple") == "netease":
+        from app.services.netease import client as netease_client
+
+        cookies = (
+            netease_client.parse_cookie_str(user.netease_cookie)
+            if user.netease_cookie
+            else None
+        )
+        items = (
+            await netease_client.get_playlist_tracks(song.netease_id, cookies=cookies)
+            if getattr(song, "type", "song") == "playlists"
+            else await netease_client.get_album_tracks(song.netease_id, cookies=cookies)
+        )
+        return {
+            "album_title": song.title,
+            "album_artist": song.artist,
+            "tracks": [
+                {
+                    "id": it.get("netease_id", ""),
+                    "title": it.get("title", ""),
+                    "artist": it.get("artist", ""),
+                    "duration_ms": it.get("duration_ms"),
+                    "track_number": it.get("track_number"),
+                    "preview_url": None,
+                }
+                for it in items
+            ],
+        }
 
     # 资料库同步的专辑自带曲目（relationships.tracks），无需请求 catalog
     lib_tracks = ((song.raw_meta or {}).get("relationships") or {}).get("tracks", {}).get("data", [])

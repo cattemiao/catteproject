@@ -72,7 +72,10 @@ export const neteaseApi = {
     client.get<{ code: number; message: string; nickname?: string; avatar_url?: string }>(`/netease/qr/${key}`),
   status: () => client.get<{ bound: boolean; nickname?: string; avatar_url?: string; uid?: string }>('/netease/status'),
   syncRecent: (limit = 10) => client.post(`/netease/sync`, null, { params: { limit } }),
+  library: (limit = 100) => client.get(`/netease/library`, { params: { limit } }),
   search: (q: string, limit = 10) => client.get('/netease/search', { params: { q, limit } }),
+  preview: (songId: number) => client.get<PreviewData>(`/netease/preview/${songId}`),
+  trackUrl: (neteaseId: string) => client.get<PreviewData>('/netease/track-url', { params: { netease_id: neteaseId } }),
 }
 
 export const recommendApi = {

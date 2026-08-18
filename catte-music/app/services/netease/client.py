@@ -4,6 +4,9 @@ from __future__ import annotations
 import logging
 import time
 
+import httpx
+
+from app.services.crawler.anti_crawl import random_user_agent
 from app.services.netease.weapi import qr_content, weapi_post
 
 logger = logging.getLogger(__name__)
@@ -113,22 +116,164 @@ async def get_recent_played(
         s = item.get("song", {}) if isinstance(item, dict) else {}
         if not s:
             continue
-        artists = s.get("ar", s.get("artists", []))
-        artist_names = "、".join(
-            [a.get("name", "") for a in artists if isinstance(a, dict)]
-        )
-        album = s.get("al", s.get("album", {})) or {}
-        songs.append({
-            "netease_id": str(s.get("id", "")),
-            "title": s.get("name", ""),
-            "artist": artist_names,
-            "album": album.get("name", "") if isinstance(album, dict) else "",
-            "duration_ms": s.get("dt", s.get("duration", 0)),
-            "cover_url": (album.get("picUrl", "") if isinstance(album, dict) else "")
-            or s.get("album", {}).get("picUrl", ""),
-            "raw": s,
-        })
+        songs.append(_parse_song(s))
     return songs
+
+
+def _parse_song(s: dict) -> dict:
+    """把网易云歌曲对象转为统一结构。"""
+    artists = s.get("ar", s.get("artists", []))
+    artist_names = "、".join(
+        [a.get("name", "") for a in artists if isinstance(a, dict)]
+    )
+    album = s.get("al", s.get("album", {})) or {}
+    return {
+        "netease_id": str(s.get("id", "")),
+        "title": s.get("name", ""),
+        "artist": artist_names,
+        "album": album.get("name", "") if isinstance(album, dict) else "",
+        "duration_ms": s.get("dt", s.get("duration", 0)),
+        "track_number": s.get("no"),
+        "cover_url": (album.get("picUrl", "") if isinstance(album, dict) else "")
+        or s.get("album", {}).get("picUrl", ""),
+        "raw": s,
+    }
+
+
+async def get_album_tracks(
+    album_id: str,
+    cookies: dict[str, str] | None = None,
+    limit: int = 200,
+) -> list[dict]:
+    """获取专辑曲目（weapi /v1/album/{id}）。"""
+    payload, _ = await weapi_post(f"/v1/album/{album_id}", {}, cookies=cookies)
+    songs = payload.get("songs") or []
+    return [_parse_song(s) for s in songs[:limit]]
+
+
+async def get_playlist_tracks(
+    playlist_id: str,
+    cookies: dict[str, str] | None = None,
+    limit: int = 200,
+) -> list[dict]:
+    """获取歌单曲目（weapi /v6/playlist/detail，n=100000 拉全量）。"""
+    payload, _ = await weapi_post(
+        "/v6/playlist/detail",
+        {"id": int(playlist_id), "n": 100000, "s": 8},
+        cookies=cookies,
+    )
+    playlist = payload.get("playlist") or {}
+    songs = playlist.get("tracks") or []
+    return [_parse_song(s) for s in songs[:limit]]
+
+
+def _api_headers(cookies: dict[str, str]) -> dict[str, str]:
+    """构造网易云普通 api 接口请求头（非 weapi 加密）。"""
+    return {
+        "User-Agent": random_user_agent(),
+        "Referer": "https://music.163.com/",
+        "Accept": "application/json, text/plain, */*",
+        "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+        "Content-Type": "application/x-www-form-urlencoded",
+        "Origin": "https://music.163.com",
+        "Cookie": "os=pc; appver=8.9.70; "
+        + "; ".join(f"{k}={v}" for k, v in cookies.items()),
+    }
+
+
+async def get_subscribed_playlists(
+    cookies: dict[str, str],
+    uid: int,
+    limit: int = 100,
+) -> list[dict]:
+    """获取用户收藏的歌单（排除自己创建的与"我喜欢的音乐"特殊歌单）。"""
+    headers = _api_headers(cookies)
+    try:
+        async with httpx.AsyncClient(timeout=15, follow_redirects=True) as cli:
+            resp = await cli.post(
+                "https://music.163.com/api/user/playlist",
+                data={"uid": uid, "limit": 100, "offset": 0},
+                headers=headers,
+            )
+            playlists = (resp.json().get("playlist") or []) or []
+    except (httpx.HTTPError, ValueError) as exc:
+        logger.warning("网易云收藏歌单获取失败: %s", exc)
+        return []
+
+    result = []
+    for p in playlists:
+        if p.get("specialType") == 5:
+            continue  # 我喜欢的音乐（特殊歌单）
+        if p.get("userId") == uid:
+            continue  # 自己创建的歌单
+        creator = p.get("creator") or {}
+        result.append({
+            "netease_id": str(p.get("id", "")),
+            "title": p.get("name", ""),
+            "artist": creator.get("nickname", "") if isinstance(creator, dict) else "",
+            "album": "",
+            "cover_url": p.get("coverImgUrl", ""),
+            "track_count": p.get("trackCount"),
+            "raw": p,
+        })
+        if len(result) >= limit:
+            break
+    return result
+
+
+async def get_subscribed_albums(
+    cookies: dict[str, str],
+    limit: int = 100,
+) -> list[dict]:
+    """获取用户收藏的专辑（网易云音乐库）。"""
+    payload, _ = await weapi_post(
+        "/album/sublist",
+        {"limit": min(limit, 200), "offset": 0, "total": True},
+        cookies=cookies,
+    )
+    albums = payload.get("data", []) or []
+    result = []
+    for a in albums:
+        if not isinstance(a, dict) or not a.get("id"):
+            continue
+        artists = a.get("artists", [])
+        artist_names = "、".join(
+            [x.get("name", "") for x in artists if isinstance(x, dict)]
+        )
+        result.append({
+            "netease_id": str(a.get("id", "")),
+            "title": a.get("name", ""),
+            "artist": artist_names,
+            "album": a.get("name", ""),
+            "cover_url": a.get("picUrl", ""),
+            "publish_time": a.get("publishTime"),
+            "track_count": a.get("size"),
+            "raw": a,
+        })
+    return result
+
+
+async def get_song_url(
+    cookies: dict[str, str],
+    song_id: str,
+    br: int = 128000,
+) -> str | None:
+    """获取歌曲试听音频 URL（weapi /song/enhance/player/url，30s 试听）。
+
+    非 VIP 歌曲可返回标准音质试听链接；失败时兜底网易云外链播放器。
+    """
+    payload, _ = await weapi_post(
+        "/song/enhance/player/url",
+        {"ids": f"[{song_id}]", "br": br},
+        cookies=cookies,
+    )
+    data = payload.get("data") or []
+    if isinstance(data, list) and data:
+        url = (data[0].get("url") or "").strip()
+        if url:
+            return url
+    # 兜底：网易云外链播放器（30s 预览，无需登录）
+    return f"https://music.163.com/song/media/outer/url?id={song_id}.mp3"
 
 
 async def search_songs(

@@ -58,18 +58,13 @@ async def _download_preview(url: str, dest: Path) -> None:
     logger.info("预览音频已下载: %d bytes -> %s", len(resp.content), dest)
 
 
-def _classify_by_profile(
-    features: "np.ndarray",  # noqa: F821
-) -> tuple[str, float]:
-    """基于 7 维情绪模板的最近邻分类器。
+def _map_features_to_dimensions(features: "np.ndarray") -> "np.ndarray":  # noqa: F821
+    """35 维音频特征 → 7 维情绪指标映射（响度/高频/节奏/声场/层次/舒缓/韵律）。
 
-    特征 35 维 → 7 维映射（chroma/tonnetz 增强版）：
-    loudness, high_freq, rhythm, soundstage, layering, soothing, prosody
+    特征布局：tempo, rmse, centroid, zcr, mfcc[13], chroma[12], tonnetz[6]
     """
     import numpy as np
-    from app.services.ai.seed_emotions import EMOTION_PROFILES
 
-    # 35 维特征拆解
     tempo, rmse, centroid, zcr = features[0], features[1], features[2], features[3]
     mfcc = features[4:17]       # 13 维
     chroma = features[17:29]    # 12 维
@@ -114,7 +109,17 @@ def _classify_by_profile(
         float(np.std(tonnetz)) * 12
     ))
 
-    audio_dim = np.array([loudness, high_freq, rhythm, soundstage, layering, soothing, prosody])
+    return np.array([loudness, high_freq, rhythm, soundstage, layering, soothing, prosody])
+
+
+def _classify_by_profile(
+    features: "np.ndarray",  # noqa: F821
+) -> tuple[str, float]:
+    """基于 7 维情绪模板的最近邻分类器。"""
+    import numpy as np
+    from app.services.ai.seed_emotions import EMOTION_PROFILES
+
+    audio_dim = _map_features_to_dimensions(features)
 
     best_emotion = "治愈"
     best_dist = float("inf")
@@ -177,10 +182,14 @@ async def analyze_song(song_id: int, db: AsyncSession = Depends(get_db)):
     color = emotion.color
 
     feature_dict = {str(i): float(features[i]) for i in range(len(features))}
+    dims = _map_features_to_dimensions(features)
     db.add(AiPrediction(
         song_id=song.id, emotion_id=emotion.id,
         confidence=confidence, feature_vector=feature_dict,
         model_version="rule-based-v0.2",
+        loudness=float(dims[0]), high_freq=float(dims[1]), rhythm=float(dims[2]),
+        soundstage=float(dims[3]), layering=float(dims[4]), soothing=float(dims[5]),
+        prosody=float(dims[6]),
     ))
 
     existing = await db.execute(

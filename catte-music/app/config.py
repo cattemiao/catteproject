@@ -14,7 +14,8 @@ class Settings(BaseSettings):
     # JWT
     secret_key: str = "change-me-to-a-random-secret"
     algorithm: str = "HS256"
-    access_token_expire_days: int = 7
+    # session 超时时间（分钟），可通过环境变量 ACCESS_TOKEN_EXPIRE_MINUTES 覆盖
+    access_token_expire_minutes: int = 60
 
     # Apple Music
     apple_music_key_id: str = ""

@@ -34,12 +34,13 @@ async def recommend_by_emotion(
     db: AsyncSession,
     user_id: int,
     limit: int = 20,
+    platform: str | None = None,
 ) -> list[Song]:
     """基于用户收藏歌曲的情绪偏好推荐相似歌曲。
 
     策略：
     1. 找到用户收藏歌曲的 Top 情绪
-    2. 推荐同情绪下用户未收藏的其他歌曲
+    2. 推荐同情绪下用户未收藏的其他歌曲（仅限该用户自己的歌曲，可选按平台过滤）
     """
     # 1. 查用户收藏歌曲的情绪分布
     user_emotions = await db.execute(
@@ -52,9 +53,10 @@ async def recommend_by_emotion(
 
     if not emotion_rows:
         # 无收藏数据时返回该用户最近同步的歌曲
-        result = await db.execute(
-            select(Song).where(Song.user_id == user_id).order_by(Song.id.desc()).limit(limit)
-        )
+        query = select(Song).where(Song.user_id == user_id)
+        if platform:
+            query = query.where(Song.platform == platform)
+        result = await db.execute(query.order_by(Song.id.desc()).limit(limit))
         return list(result.scalars().all())
 
     top_emotion_id = emotion_rows[0][0]
@@ -64,15 +66,18 @@ async def recommend_by_emotion(
         select(UserFavorite.song_id).where(UserFavorite.user_id == user_id)
     ).subquery()
 
-    result = await db.execute(
+    query = (
         select(Song)
         .join(SongEmotion, SongEmotion.song_id == Song.id)
         .where(
             SongEmotion.emotion_id == top_emotion_id,
+            Song.user_id == user_id,  # 仅推荐该用户自己的歌曲
             Song.id.not_in(favorited_ids_sq),
         )
-        .limit(limit)
     )
+    if platform:
+        query = query.where(Song.platform == platform)
+    result = await db.execute(query.limit(limit))
     return list(result.scalars().all())
 
 
@@ -80,6 +85,7 @@ async def recommend_by_style(
     db: AsyncSession,
     user_id: int,
     limit: int = 6,
+    platform: str | None = None,
 ) -> dict[str, Any]:
     """根据用户偏爱的音乐风格推荐风格相似的新歌。
 
@@ -118,9 +124,10 @@ async def recommend_by_style(
 
     if not fav_songs:
         # 无收藏：返回该用户最近同步的歌曲
-        result = await db.execute(
-            select(Song).where(Song.user_id == user_id).order_by(Song.id.desc()).limit(limit)
-        )
+        query = select(Song).where(Song.user_id == user_id)
+        if platform:
+            query = query.where(Song.platform == platform)
+        result = await db.execute(query.order_by(Song.id.desc()).limit(limit))
         return {
             "preference": None,
             "recommendations": [
@@ -163,13 +170,14 @@ async def recommend_by_style(
 
     if not genre_count and not top_emotion:
         # 无流派也无情绪信息，降级到该用户最新
-        result = await db.execute(
+        query = (
             select(Song)
             .where(Song.user_id == user_id)
             .where(~Song.id.in_(fav_ids) if fav_ids else True)
-            .order_by(Song.id.desc())
-            .limit(limit)
         )
+        if platform:
+            query = query.where(Song.platform == platform)
+        result = await db.execute(query.order_by(Song.id.desc()).limit(limit))
         return {
             "preference": {"top_genres": [], "top_emotion": None, "fav_count": len(fav_songs)},
             "recommendations": [
@@ -188,12 +196,15 @@ async def recommend_by_style(
     top_genres = sorted(genre_count.items(), key=lambda x: -x[1])[:3]
     preferred_genres = {g for g, _ in top_genres}
 
-    # 4. 从库内找候选（该用户未收藏的歌曲）
-    cand_result = await db.execute(
+    # 4. 从库内找候选（该用户未收藏的歌曲，可选按平台过滤）
+    cand_query = (
         select(Song)
         .where(Song.user_id == user_id)
         .where(~Song.id.in_(fav_ids) if fav_ids else True)
     )
+    if platform:
+        cand_query = cand_query.where(Song.platform == platform)
+    cand_result = await db.execute(cand_query)
     candidates = list(cand_result.scalars().all())
 
     # 获取候选歌曲的情绪预测

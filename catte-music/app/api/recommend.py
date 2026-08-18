@@ -15,16 +15,18 @@ router = APIRouter(prefix="/api", tags=["推荐"])
 @router.get("/recommend", response_model=list[SongOut])
 async def recommend(
     limit: int = Query(20, ge=1, le=100),
+    platform: str | None = Query(None, description="apple/netease，按平台过滤"),
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    songs = await recommend_by_emotion(db, user.id, limit=limit)
+    songs = await recommend_by_emotion(db, user.id, limit=limit, platform=platform)
     return [_song_to_out(s) for s in songs]
 
 
 @router.get("/recommend/style")
 async def recommend_style(
     limit: int = Query(6, ge=1, le=50),
+    platform: str | None = Query(None, description="apple/netease，按平台过滤"),
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -32,7 +34,7 @@ async def recommend_style(
 
     返回推荐歌曲列表 + 用户风格偏好 + 每首歌的推荐理由。
     """
-    result = await recommend_by_style(db, user.id, limit=limit)
+    result = await recommend_by_style(db, user.id, limit=limit, platform=platform)
     return {
         "preference": result["preference"],
         "recommendations": [

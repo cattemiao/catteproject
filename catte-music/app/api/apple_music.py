@@ -195,6 +195,7 @@ async def heavy_rotation(
             duration_ms=attrs.get("durationInMillis"),
             raw_meta=attrs,
             song_type=item_type,
+            user_id=user.id,
         )
         songs.append({
             "id": song.id, "apple_music_id": song.apple_music_id,

@@ -1,6 +1,6 @@
 import { lazy, Suspense, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Disc, Music, TrendingUp, Sparkles, Compass } from 'lucide-react'
+import { Disc, Music, TrendingUp, Sparkles, Compass, Trash2 } from 'lucide-react'
 import { songsApi, appleMusicApi, recommendApi, authApi } from '../api/client'
 import { loadMusicKit } from '../utils/musicKit'
 import type { SongOut, StyleRecommendResult } from '../types'
@@ -14,18 +14,32 @@ export default function Home() {
   const [styleRecs, setStyleRecs] = useState<StyleRecommendResult | null>(null)
   const [syncing, setSyncing] = useState(false)
   const [syncMsg, setSyncMsg] = useState('')
+  const [clearing, setClearing] = useState(false)
+  const [clearMsg, setClearMsg] = useState('')
 
   useEffect(() => {
-    songsApi.list({ size: 12 }).then(({ data }) => setSongs(data.items)).catch(() => {})
-    recommendApi.get(6).then(({ data }) => setRecs(data)).catch(() => {})
-    recommendApi.getStyle(6).then(({ data }) => setStyleRecs(data)).catch(() => {})
-    // 进入首页时检查 Apple Music 授权状态，未授权则自动弹出授权窗口
-    authApi.me().then(({ data }) => {
-      if (!data.has_apple_music) {
-        syncAppleMusic()
-      }
-    }).catch(() => {})
+    // Apple Music 页：音乐库与推荐区均只展示 Apple Music 平台导入的歌曲
+    songsApi.list({ size: 12, platform: 'apple' }).then(({ data }) => setSongs(data.items)).catch(() => {})
+    recommendApi.get(6, { platform: 'apple' }).then(({ data }) => setRecs(data)).catch(() => {})
+    recommendApi.getStyle(6, { platform: 'apple' }).then(({ data }) => setStyleRecs(data)).catch(() => {})
   }, [])
+
+  const clearApple = async () => {
+    if (!window.confirm('确定清空已导入的 Apple Music 歌曲吗？清空后可点击上方按钮重新同步。')) return
+    setClearing(true)
+    setClearMsg('')
+    try {
+      const { data } = await songsApi.clear('apple')
+      setSongs([])
+      setRecs([])
+      setStyleRecs(null)
+      setClearMsg(`已清空 ${data.deleted} 首，可重新同步`)
+    } catch {
+      setClearMsg('清空失败，请重试')
+    } finally {
+      setClearing(false)
+    }
+  }
 
   const syncAppleMusic = async () => {
     setSyncing(true)
@@ -146,10 +160,25 @@ export default function Home() {
 
       {/* 全部歌曲 */}
       <section>
-        <h2 className="font-display text-xl font-bold mb-4 flex items-center gap-2">
-          <Music className="w-5 h-5 text-neon-cyan" />
-          音乐库
-        </h2>
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="font-display text-xl font-bold flex items-center gap-2">
+            <Music className="w-5 h-5 text-neon-cyan" />
+            音乐库
+          </h2>
+          <button
+            onClick={clearApple}
+            disabled={clearing || songs.length === 0}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm text-slate-400 hover:text-red-400 hover:bg-red-500/10 border border-white/10 hover:border-red-500/40 transition-all disabled:opacity-40 disabled:hover:text-slate-400 disabled:hover:bg-transparent disabled:hover:border-white/10"
+          >
+            <Trash2 className={`w-4 h-4 ${clearing ? 'animate-pulse' : ''}`} />
+            {clearing ? '清空中…' : '清空'}
+          </button>
+        </div>
+        {clearMsg && (
+          <p className={`text-sm mb-3 ${clearMsg.includes('成功') || clearMsg.includes('清空') ? 'text-neon-cyan' : 'text-red-400'}`}>
+            {clearMsg}
+          </p>
+        )}
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
           {songs.map((song) => (
             <SongCard key={song.id} song={song} />

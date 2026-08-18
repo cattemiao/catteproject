@@ -89,6 +89,37 @@ async def list_songs(
     return SongListOut(total=total, items=items)
 
 
+@router.delete("")
+async def clear_songs(
+    platform: str = Query(..., description="apple/netease，必填"),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """清空当前用户指定平台导入的歌曲（含情绪/标签/预测/收藏等关联数据），便于重新同步。"""
+    from app.models.prediction import AiPrediction
+    from app.models.song import SongEmotion, SongTag
+    from app.models.user import UserFavorite
+
+    song_ids = (
+        await db.execute(
+            select(Song.id).where(Song.user_id == user.id, Song.platform == platform)
+        )
+    ).scalars().all()
+    if not song_ids:
+        return {"deleted": 0, "platform": platform}
+
+    # 先删关联数据（外键依赖），再删歌曲本体
+    for model in (UserFavorite, SongEmotion, SongTag, AiPrediction):
+        await db.execute(
+            model.__table__.delete().where(model.song_id.in_(song_ids))
+        )
+    result = await db.execute(
+        Song.__table__.delete().where(Song.id.in_(song_ids))
+    )
+    await db.commit()
+    return {"deleted": result.rowcount, "platform": platform}
+
+
 @router.get("/{song_id}", response_model=SongOut)
 async def get_song(song_id: int, db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(Song).where(Song.id == song_id))

@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { QRCodeCanvas } from 'qrcode.react'
-import { Disc, Music, RefreshCw, Podcast, Search, TrendingUp } from 'lucide-react'
-import { neteaseApi } from '../api/client'
+import { Disc, Music, RefreshCw, Podcast, Search, TrendingUp, Trash2 } from 'lucide-react'
+import { neteaseApi, songsApi } from '../api/client'
 import ParticleBg from '../components/ParticleBg'
 import type { SongOut } from '../types'
 
@@ -18,15 +18,30 @@ export default function NeteaseHome() {
   const [songs, setSongs] = useState<SongOut[]>([])
   const [searchQ, setSearchQ] = useState('')
   const [searching, setSearching] = useState(false)
+  const [clearing, setClearing] = useState(false)
+  const [clearMsg, setClearMsg] = useState('')
   const pollTimer = useRef<number | null>(null)
 
   const loadSongs = () => {
     // 拉取网易云平台的歌曲
-    import('../api/client').then(({ songsApi }) =>
-      songsApi.list({ size: 20, platform: 'netease' } as never)
-        .then(({ data }) => setSongs(data.items))
-        .catch(() => {}),
-    )
+    songsApi.list({ size: 20, platform: 'netease' })
+      .then(({ data }) => setSongs(data.items))
+      .catch(() => {})
+  }
+
+  const clearNetease = async () => {
+    if (!window.confirm('确定清空已导入的网易云歌曲吗？清空后可重新同步。')) return
+    setClearing(true)
+    setClearMsg('')
+    try {
+      const { data } = await songsApi.clear('netease')
+      setSongs([])
+      setClearMsg(`已清空 ${data.deleted} 首，可重新同步`)
+    } catch {
+      setClearMsg('清空失败，请重试')
+    } finally {
+      setClearing(false)
+    }
   }
 
   const refreshStatus = async () => {
@@ -213,10 +228,23 @@ export default function NeteaseHome() {
 
       {/* 网易云歌曲列表 */}
       <section>
-        <h2 className="font-display text-xl font-bold mb-4 flex items-center gap-2">
-          <TrendingUp className="w-5 h-5 text-red-400" />
-          网易云音乐库
-        </h2>
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="font-display text-xl font-bold flex items-center gap-2">
+            <TrendingUp className="w-5 h-5 text-red-400" />
+            网易云音乐库
+          </h2>
+          <button
+            onClick={clearNetease}
+            disabled={clearing || songs.length === 0}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-red-500/30 bg-red-500/10 text-red-400 text-xs font-medium hover:bg-red-500/25 hover:border-red-500/50 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            <Trash2 className={`w-3.5 h-3.5 ${clearing ? 'animate-pulse' : ''}`} />
+            {clearing ? '清空中…' : '清空'}
+          </button>
+        </div>
+        {clearMsg && (
+          <p className="text-xs mb-4 text-neon-cyan">{clearMsg}</p>
+        )}
         {songs.length === 0 ? (
           <p className="text-slate-500 text-sm py-8 text-center">
             {bound ? '暂无歌曲，点击上方"同步最近播放"拉取听歌记录' : '绑定账号并同步后，这里将展示你的网易云听歌记录'}

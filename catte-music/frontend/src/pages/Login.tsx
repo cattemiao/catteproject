@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Music, Sparkles, Podcast } from 'lucide-react'
 import { authApi } from '../api/client'
+import { setToken } from '../utils/auth'
 
 type Mode = 'login' | 'register'
 type Platform = 'apple' | 'netease'
@@ -24,7 +25,7 @@ export default function Login() {
         await authApi.register(username, password)
       }
       const { data } = await authApi.login(username, password)
-      localStorage.setItem('catte_token', data.access_token)
+      setToken(data.access_token)
       navigate(platform === 'netease' ? '/netease' : '/')
     } catch (err: unknown) {
       const msg =

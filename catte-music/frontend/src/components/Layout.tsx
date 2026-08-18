@@ -3,13 +3,14 @@ import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { Home, Heart, LogOut, Music, Podcast } from 'lucide-react'
 import logo from '../../logo.png'
 import SuggestionBox from './SuggestionBox'
+import { clearToken } from '../utils/auth'
 
 export default function Layout({ children }: { children: ReactNode }) {
   const navigate = useNavigate()
   const location = useLocation()
 
   const logout = () => {
-    localStorage.removeItem('catte_token')
+    clearToken()
     navigate('/login')
   }
 

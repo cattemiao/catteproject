@@ -1,7 +1,7 @@
 """网易云音乐路由：二维码登录、最近播放同步、搜索。"""
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -66,6 +66,7 @@ async def sync_recent(
     limit: int = Query(10, ge=1, le=20),
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
+    background_tasks: BackgroundTasks = None,
 ):
     """同步网易云最近播放记录到本地库，并触发后台情绪分析。"""
     if not user.netease_cookie:
@@ -119,11 +120,11 @@ async def sync_recent(
 
     await db.commit()
 
-    # 后台触发情绪分析与多源评价（与 Apple Music 同步流程一致）
+    # 后台触发情绪分析与多源评价（与 Apple Music 同步流程一致），不阻塞接口响应
     if created:
         from app.api.apple_music import _background_enrich
 
-        await _background_enrich([s.id for s in created])
+        background_tasks.add_task(_background_enrich, [s.id for s in created])
 
     return {
         "synced": len(created),

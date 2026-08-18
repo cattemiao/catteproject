@@ -1,10 +1,11 @@
 import axios from 'axios'
 import type { PredictionData, RadarData, ReviewData, SongListOut, SongOut, PreviewData, StyleRecommendResult } from '../types'
+import { getToken, clearToken } from '../utils/auth'
 
 const client = axios.create({ baseURL: '/api' })
 
 client.interceptors.request.use((config) => {
-  const token = localStorage.getItem('catte_token')
+  const token = getToken()
   if (token) {
     config.headers.Authorization = `Bearer ${token}`
   }
@@ -15,7 +16,7 @@ client.interceptors.response.use(
   (resp) => resp,
   (error) => {
     if (error?.response?.status === 401) {
-      localStorage.removeItem('catte_token')
+      clearToken()
       window.location.href = '/login'
     }
     return Promise.reject(error)
@@ -37,6 +38,7 @@ export const authApi = {
 export const songsApi = {
   list: (params?: { q?: string; page?: number; size?: number; platform?: string }) =>
     client.get<SongListOut>('/songs', { params }),
+  clear: (platform: string) => client.delete<{ deleted: number; platform: string }>('/songs', { params: { platform } }),
   get: (id: number) => client.get<SongOut>(`/songs/${id}`),
   favorite: (id: number) => client.post(`/songs/${id}/favorite`),
   getPreview: (id: number) => client.get<PreviewData>(`/songs/${id}/preview`),
@@ -71,8 +73,10 @@ export const neteaseApi = {
 }
 
 export const recommendApi = {
-  get: (limit = 6) => client.get('/recommend', { params: { limit } }),
-  getStyle: (limit = 6) => client.get<StyleRecommendResult>('/recommend/style', { params: { limit } }),
+  get: (limit = 6, params?: { platform?: string }) =>
+    client.get('/recommend', { params: { limit, ...params } }),
+  getStyle: (limit = 6, params?: { platform?: string }) =>
+    client.get<StyleRecommendResult>('/recommend/style', { params: { limit, ...params } }),
 }
 
 export interface SuggestionOut {

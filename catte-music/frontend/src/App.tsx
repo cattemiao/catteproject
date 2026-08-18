@@ -2,6 +2,7 @@ import { lazy, Suspense } from 'react'
 import { Routes, Route, Navigate } from 'react-router-dom'
 
 import Layout from './components/Layout'
+import { isTokenValid, clearToken } from './utils/auth'
 
 // 路由级代码分割：p5.js（粒子/雷达）等重依赖只在实际进入页面时加载
 const Login = lazy(() => import('./pages/Login'))
@@ -20,8 +21,11 @@ function PageLoader() {
 }
 
 function ProtectedLayout() {
-  const token = localStorage.getItem('catte_token')
-  if (!token) return <Navigate to="/login" replace />
+  // token 不存在或已过期：清除并跳转登录页
+  if (!isTokenValid()) {
+    clearToken()
+    return <Navigate to="/login" replace />
+  }
   return (
     <Layout>
       <Suspense fallback={<PageLoader />}>

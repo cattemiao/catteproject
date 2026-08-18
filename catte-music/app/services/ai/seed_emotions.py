@@ -42,29 +42,40 @@ EMOTION_PROFILES: list[tuple[str, str, dict[str, float]]] = [
 
 async def seed() -> None:
     async with async_session_factory() as session:
-        existing = (await session.execute(select(Emotion))).scalars().all()
-        if existing:
-            logger.info("情绪表已有 %d 条数据，跳过初始化", len(existing))
-            return
+        emotions = (await session.execute(select(Emotion))).scalars().all()
+        existing_names = {e.name for e in emotions}
+        profiles = {name: dims for name, _, dims in EMOTION_PROFILES}
 
+        # 已配置维度的情绪（避免访问 relationship 触发异步惰性加载）
+        dim_emotion_ids = set(
+            (await session.execute(select(EmotionDimension.emotion_id))).scalars().all()
+        )
+
+        # 补建已有情绪缺失的维度数据（旧库可能出现 emotions 有数据而 dimensions 为空）
+        created = 0
+        for emotion in emotions:
+            if emotion.id in dim_emotion_ids:
+                continue
+            dims = profiles.get(emotion.name)
+            if not dims:
+                continue
+            session.add(EmotionDimension(emotion_id=emotion.id, **dims))
+            created += 1
+
+        # 新增种子中还没有的情绪
         for name, color, dims in EMOTION_PROFILES:
-            emotion = Emotion(name=name, color=color)
-            session.add(emotion)
-            await session.flush()
-            dim = EmotionDimension(
-                emotion_id=emotion.id,
-                loudness=dims["loudness"],
-                high_freq=dims["high_freq"],
-                rhythm=dims["rhythm"],
-                soundstage=dims["soundstage"],
-                layering=dims["layering"],
-                soothing=dims["soothing"],
-                prosody=dims["prosody"],
-            )
-            session.add(dim)
+            if name not in existing_names:
+                emotion = Emotion(name=name, color=color)
+                session.add(emotion)
+                await session.flush()
+                session.add(EmotionDimension(emotion_id=emotion.id, **dims))
+                created += 1
 
-        await session.commit()
-        logger.info("已初始化 %d 种情绪 + 7 维模板", len(EMOTION_PROFILES))
+        if created:
+            await session.commit()
+            logger.info("已补建/新增 %d 条情绪维度", created)
+        else:
+            logger.info("情绪数据完整（%d 种），无需初始化", len(emotions))
 
 
 if __name__ == "__main__":

@@ -128,6 +128,14 @@ def _apply_lightweight_migrations(sync_conn) -> None:
         if "netease_profile" not in user_cols:
             sync_conn.execute(text("ALTER TABLE users ADD COLUMN netease_profile JSON"))
 
+    # ai_predictions: 新增 7 维真实音频特征指标（雷达图使用）
+    if "ai_predictions" in inspector.get_table_names():
+        pred_cols = {c["name"] for c in inspector.get_columns("ai_predictions")}
+        for col in ("loudness", "high_freq", "rhythm", "soundstage",
+                    "layering", "soothing", "prosody"):
+            if col not in pred_cols:
+                sync_conn.execute(text(f"ALTER TABLE ai_predictions ADD COLUMN {col} FLOAT"))
+
     # 补建 models 定义的缺失索引（SQLite 的 create_all 不会为已存在表补建索引）
     existing_tables = set(inspector.get_table_names())
     for table in Base.metadata.tables.values():

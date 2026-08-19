@@ -3,24 +3,40 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user
-from app.api.songs import _song_to_out
+from app.api.shares import _share_to_out
 from app.database import get_db
 from app.models.user import User
-from app.schemas.song import SongOut
-from app.services.recommend import recommend_by_emotion, recommend_by_style
+from app.schemas.share import ShareOut
+from app.services.recommend import recommend_by_style, recommend_shares
 
 router = APIRouter(prefix="/api", tags=["推荐"])
 
 
-@router.get("/recommend", response_model=list[SongOut])
+@router.get("/recommend", response_model=list[ShareOut])
 async def recommend(
     limit: int = Query(20, ge=1, le=100),
     platform: str | None = Query(None, description="apple/netease，按平台过滤"),
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    songs = await recommend_by_emotion(db, user.id, limit=limit, platform=platform)
-    return [_song_to_out(s) for s in songs]
+    """社区推荐列表：完全来自其他用户的分享。
+
+    流水线：平台过滤（仅推送已绑定平台的分享）→ 情绪相似度排序（7 维余弦）→
+    点赞加权 → 随机兜底补足，保证列表长度。
+    """
+    items = await recommend_shares(db, user, limit=limit, platform=platform)
+    return [
+        _share_to_out(
+            item["share"],
+            item["song"],
+            item["sharer"],
+            item["like_count"],
+            item["user_liked"],
+            item["emotion"],
+            item["similarity"],
+        )
+        for item in items
+    ]
 
 
 @router.get("/recommend/style")

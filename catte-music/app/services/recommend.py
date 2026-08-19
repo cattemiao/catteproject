@@ -1,16 +1,19 @@
-"""AI 音乐推荐：基于情绪标签与风格的推荐。"""
+"""AI 音乐推荐：情绪标签/风格推荐 + 社区分享推荐流水线。"""
 from __future__ import annotations
 
 import logging
+import math
+import random
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
+from app.models.share import Like, Share
 from app.models.song import Song, SongEmotion, SongTag, Tag
 from app.models.prediction import AiPrediction
-from app.models.user import Emotion, UserFavorite
+from app.models.user import Emotion, User, UserFavorite
 
 logger = logging.getLogger(__name__)
 
@@ -282,3 +285,190 @@ async def recommend_by_style(
         },
         "recommendations": rec_data,
     }
+
+
+# ---------------------------------------------------------------------------
+# 社区分享推荐流水线：平台过滤 → 情绪相似度排序 → 点赞加权 → 随机兜底补足
+# ---------------------------------------------------------------------------
+
+_DIMENSION_FIELDS = ("loudness", "high_freq", "rhythm", "soundstage", "layering", "soothing", "prosody")
+
+
+def _cosine_sim(a: list[float], b: list[float]) -> float:
+    """两个 7 维向量的余弦相似度。"""
+    dot = sum(x * y for x, y in zip(a, b))
+    na = math.sqrt(sum(x * x for x in a))
+    nb = math.sqrt(sum(x * x for x in b))
+    if na == 0 or nb == 0:
+        return 0.0
+    return dot / (na * nb)
+
+
+async def _user_avg_vector(db: AsyncSession, user_id: int) -> list[float] | None:
+    """聚合当前用户所有 AI 分析结果的平均 7 维情绪向量；无有效预测返回 None。"""
+    song_ids = (
+        await db.execute(select(Song.id).where(Song.user_id == user_id))
+    ).scalars().all()
+    if not song_ids:
+        return None
+    preds = (
+        await db.execute(
+            select(AiPrediction)
+            .where(AiPrediction.song_id.in_(song_ids))
+            .order_by(AiPrediction.id.desc())
+        )
+    ).scalars().all()
+
+    seen: set[int] = set()
+    vectors: list[list[float]] = []
+    for p in preds:  # 每首歌只取最新一条预测
+        if p.song_id in seen:
+            continue
+        seen.add(p.song_id)
+        vec = [getattr(p, f) for f in _DIMENSION_FIELDS]
+        if all(v is not None for v in vec):
+            vectors.append(vec)
+
+    if not vectors:
+        return None
+    return [sum(col) / len(col) for col in zip(*vectors)]
+
+
+async def _latest_predictions(
+    db: AsyncSession, song_ids: list[int]
+) -> dict[int, tuple[list[float] | None, str | None]]:
+    """批量取多首歌最新 AI 预测的 7 维向量与情绪名。
+
+    Returns:
+        {song_id: (vector | None, emotion_name | None)}
+    """
+    result: dict[int, tuple[list[float] | None, str | None]] = {}
+    if not song_ids:
+        return result
+    preds = (
+        await db.execute(
+            select(AiPrediction, Emotion.name)
+            .join(Emotion, Emotion.id == AiPrediction.emotion_id)
+            .where(AiPrediction.song_id.in_(song_ids))
+            .order_by(AiPrediction.id.desc())
+        )
+    ).all()
+    for p, emotion_name in preds:  # 按 id 倒序，首个即最新
+        if p.song_id in result:
+            continue
+        vec = [getattr(p, f) for f in _DIMENSION_FIELDS]
+        result[p.song_id] = (vec if all(v is not None for v in vec) else None, emotion_name)
+    return result
+
+
+async def recommend_shares(
+    db: AsyncSession,
+    user: User,
+    limit: int = 20,
+    platform: str | None = None,
+) -> list[dict[str, Any]]:
+    """社区分享推荐：完全来自其他用户的分享。
+
+    流水线：
+    1. **平台过滤**：分享来源必须与请求界面一致（Apple 界面只推 apple，网易云页只推 netease）。
+       已绑定用户按其绑定平台过滤；未绑定任何平台时按请求的平台过滤；绑定了其他平台但
+       未绑定请求的平台时返回空（该界面无对应来源内容）。
+    2. **情绪相似度**：聚合用户 AI 分析的平均 7 维向量，与各分享歌曲向量算余弦相似度。
+    3. **点赞加权**：相似度基础上按点赞数加权（越多越靠前）。
+    4. **随机兜底**：不足 limit 时用剩余分享随机补足，保证列表长度。
+
+    Returns:
+        list of {
+            "share": Share, "song": Song, "sharer": User,
+            "like_count": int, "user_liked": bool,
+            "emotion": str | None, "similarity": float | None,
+        }
+    """
+    # 1. 平台过滤：分享来源与请求界面保持一致
+    bound: list[str] = []
+    if user.apple_music_token:
+        bound.append("apple")
+    if user.netease_cookie:
+        bound.append("netease")
+    if platform:
+        if platform in bound:
+            bound = [platform]
+        elif not bound:
+            # 未绑定任何平台：按请求的平台过滤，保证界面来源一致
+            bound = [platform]
+        else:
+            # 绑定了其他平台但未绑定请求的平台：该界面无对应来源的分享
+            return []
+
+    like_count_sq = (
+        select(Like.share_id, func.count(Like.id).label("cnt"))
+        .group_by(Like.share_id)
+        .subquery()
+    )
+    where = [Share.user_id != user.id]
+    if bound:
+        where.append(Share.platform.in_(bound))
+    rows = (
+        await db.execute(
+            select(Share, Song, User, like_count_sq.c.cnt.label("like_count"))
+            .join(Song, Song.id == Share.song_id)
+            .where(*where)
+            .join(User, User.id == Share.user_id)
+            .outerjoin(like_count_sq, like_count_sq.c.share_id == Share.id)
+            .order_by(Share.id.desc())
+            .limit(500)  # 上限保护：全量分享再排序
+        )
+    ).all()
+
+    if not rows:
+        return []
+
+    # 已赞集合（当前用户）
+    liked_ids = set(
+        (
+            await db.execute(
+                select(Like.share_id).where(Like.user_id == user.id, Like.share_id.in_([r[0].id for r in rows]))
+            )
+        ).scalars().all()
+    )
+
+    # 2. 情绪相似度
+    avg_vec = await _user_avg_vector(db, user.id)
+    pred_map = await _latest_predictions(db, [r[1].id for r in rows])
+
+    scored: list[tuple[float, dict[str, Any]]] = []
+    for share, song, sharer, like_count in rows:
+        like_count = like_count or 0
+        vec, emotion_name = pred_map.get(song.id, (None, None))
+        sim = _cosine_sim(avg_vec, vec) if avg_vec and vec else 0.0
+        # 3. 点赞加权：相似度 + 点赞带来的加分（封顶避免刷票）
+        score = sim + min(like_count, 50) * 0.02
+        scored.append(
+            (
+                score,
+                {
+                    "share": share,
+                    "song": song,
+                    "sharer": sharer,
+                    "like_count": like_count,
+                    "user_liked": share.id in liked_ids,
+                    "emotion": emotion_name,
+                    "similarity": round(sim, 4) if (avg_vec and vec) else None,
+                },
+            )
+        )
+
+    # 相似度优先，点赞加权已并入 score
+    scored.sort(key=lambda x: -x[0])
+
+    # 4. 随机兜底：不足 limit 时用剩余分享随机补足（打乱后补充）
+    ranked = [item for _, item in scored]
+    if len(ranked) > limit:
+        top = ranked[:limit]
+        rest = ranked[limit:]
+        random.shuffle(rest)
+        ranked = top + rest
+    else:
+        random.shuffle(ranked)
+
+    return ranked[:limit]

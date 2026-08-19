@@ -1,7 +1,8 @@
 import { lazy, Suspense, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Disc, Music, TrendingUp, Sparkles, Compass, Trash2 } from 'lucide-react'
+import { Disc, Music, Sparkles, Compass, Trash2 } from 'lucide-react'
 import { songsApi, appleMusicApi, recommendApi, authApi } from '../api/client'
+import ShareFeed from '../components/ShareFeed'
 import { loadMusicKit } from '../utils/musicKit'
 import type { SongOut, StyleRecommendResult } from '../types'
 
@@ -12,8 +13,8 @@ export default function Home() {
   const [songs, setSongs] = useState<SongOut[]>([])
   const [page, setPage] = useState(1)
   const [total, setTotal] = useState(0)
-  const [recs, setRecs] = useState<SongOut[]>([])
   const [styleRecs, setStyleRecs] = useState<StyleRecommendResult | null>(null)
+  const [feedKey, setFeedKey] = useState(0)
   const [syncing, setSyncing] = useState(false)
   const [syncMsg, setSyncMsg] = useState('')
   const [clearing, setClearing] = useState(false)
@@ -32,9 +33,8 @@ export default function Home() {
       .catch(() => {})
   }, [page])
 
-  // 推荐区仅加载一次
+  // 风格相似推荐仅加载一次
   useEffect(() => {
-    recommendApi.get(6, { platform: 'apple' }).then(({ data }) => setRecs(data)).catch(() => {})
     recommendApi.getStyle(6, { platform: 'apple' }).then(({ data }) => setStyleRecs(data)).catch(() => {})
   }, [])
 
@@ -47,8 +47,8 @@ export default function Home() {
       setSongs([])
       setPage(1)
       setTotal(0)
-      setRecs([])
       setStyleRecs(null)
+      setFeedKey((k) => k + 1) // 清空可能删除分享，触发推荐流重新加载
       setClearMsg(`已清空 ${data.deleted} 首，可重新同步`)
     } catch {
       setClearMsg('清空失败，请重试')
@@ -139,20 +139,8 @@ export default function Home() {
         )}
       </section>
 
-      {/* 推荐区 */}
-      {recs.length > 0 && (
-        <section className="mb-10">
-          <h2 className="font-display text-xl font-bold mb-4 flex items-center gap-2">
-            <TrendingUp className="w-5 h-5 text-neon-amber" />
-            为你推荐
-          </h2>
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
-            {recs.map((song) => (
-              <SongCard key={song.id} song={song} />
-            ))}
-          </div>
-        </section>
-      )}
+      {/* 社区推荐区：其他用户分享的 Apple Music 歌单（与界面来源一致） */}
+      <ShareFeed key={feedKey} limit={6} platform="apple" />
 
       {/* 风格相似推荐区 */}
       {styleRecs && styleRecs.recommendations.length > 0 && (

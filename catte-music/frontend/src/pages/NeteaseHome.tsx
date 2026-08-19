@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { QRCodeCanvas } from 'qrcode.react'
-import { Disc, Music, RefreshCw, Podcast, Search, TrendingUp, Trash2 } from 'lucide-react'
+import { Disc, Music, RefreshCw, Podcast, TrendingUp, Trash2 } from 'lucide-react'
 import { neteaseApi, songsApi } from '../api/client'
 import ParticleBg from '../components/ParticleBg'
+import ShareFeed from '../components/ShareFeed'
 import type { SongOut } from '../types'
 
 const PAGE_SIZE = 20
@@ -20,10 +21,9 @@ export default function NeteaseHome() {
   const [songs, setSongs] = useState<SongOut[]>([])
   const [page, setPage] = useState(1)
   const [total, setTotal] = useState(0)
-  const [searchQ, setSearchQ] = useState('')
-  const [searching, setSearching] = useState(false)
   const [clearing, setClearing] = useState(false)
   const [clearMsg, setClearMsg] = useState('')
+  const [feedKey, setFeedKey] = useState(0)
   const pollTimer = useRef<number | null>(null)
 
   const loadSongs = (targetPage = 1) => {
@@ -48,6 +48,7 @@ export default function NeteaseHome() {
       setSongs([])
       setPage(1)
       setTotal(0)
+      setFeedKey((k) => k + 1) // 清空可能删除分享，触发推荐流重新加载
       setClearMsg(`已清空 ${data.deleted} 首，可重新同步`)
     } catch {
       setClearMsg('清空失败，请重试')
@@ -138,19 +139,12 @@ export default function NeteaseHome() {
     }
   }
 
-  const handleSearch = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!searchQ.trim()) return
-    setSearching(true)
-    try {
-      const { data } = await neteaseApi.search(searchQ, 10)
-      setSongs(data)
-      setTotal(0) // 搜索结果不分页，隐藏翻页
-    } catch {
-      setSyncMsg('搜索失败，请重试')
-    } finally {
-      setSearching(false)
-    }
+  // 取消扫码：停止轮询并复位状态（已绑定账号重新扫码时使用）
+  const cancelQr = () => {
+    if (pollTimer.current) window.clearInterval(pollTimer.current)
+    setQrContent('')
+    setQrState('idle')
+    setQrMsg('')
   }
 
   return (
@@ -179,8 +173,12 @@ export default function NeteaseHome() {
               </button>
             ) : (
               <div className="glass p-6 rounded-2xl inline-block">
-                <div className="bg-white p-3 rounded-xl w-[180px] h-[180px] mx-auto">
-                  <QRCodeCanvas value={qrContent} size={156} />
+                <div className="bg-white p-3 rounded-xl w-[180px] h-[180px] mx-auto flex items-center justify-center">
+                  {qrContent ? (
+                    <QRCodeCanvas value={qrContent} size={156} />
+                  ) : (
+                    <RefreshCw className="w-8 h-8 text-red-400 animate-spin" />
+                  )}
                 </div>
                 <p className={`mt-3 text-sm ${qrMsg.includes('失败') || qrMsg.includes('过期') ? 'text-red-400' : 'text-slate-300'}`}>
                   {qrMsg}
@@ -219,30 +217,31 @@ export default function NeteaseHome() {
                 {syncMsg}
               </p>
             )}
+            {/* 重新扫码：显示二维码区域（可取消） */}
+            {(qrState === 'loading' || qrState === 'waiting') && (
+              <div className="glass p-6 rounded-2xl">
+                <div className="bg-white p-3 rounded-xl w-[180px] h-[180px] mx-auto flex items-center justify-center">
+                  {qrContent ? (
+                    <QRCodeCanvas value={qrContent} size={156} />
+                  ) : (
+                    <RefreshCw className="w-8 h-8 text-red-400 animate-spin" />
+                  )}
+                </div>
+                <p className="mt-3 text-sm text-slate-300">{qrMsg}</p>
+                <button onClick={cancelQr} className="text-xs text-slate-500 hover:text-white mt-2">
+                  取消
+                </button>
+              </div>
+            )}
+            {qrState === 'error' && qrMsg && (
+              <p className="text-sm text-red-400">{qrMsg}</p>
+            )}
           </div>
         )}
       </section>
 
-      {/* 搜索网易云歌曲 */}
-      <section className="mb-10">
-        <form onSubmit={handleSearch} className="flex items-center gap-2 max-w-md mx-auto">
-          <div className="flex-1 relative">
-            <Search className="w-4 h-4 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
-            <input
-              type="text"
-              value={searchQ}
-              onChange={(e) => setSearchQ(e.target.value)}
-              className="w-full pl-9 pr-4 py-2.5 rounded-xl bg-white/5 border border-white/10
-                         focus:border-red-500/50 focus:outline-none focus:ring-2 focus:ring-red-500/20
-                         transition-all text-white placeholder:text-slate-600"
-              placeholder="搜索网易云歌曲（无需登录）"
-            />
-          </div>
-          <button type="submit" disabled={searching} className="px-4 py-2.5 rounded-xl bg-red-500/20 text-red-400 text-sm font-medium hover:bg-red-500/30 transition-all disabled:opacity-50">
-            搜索
-          </button>
-        </form>
-      </section>
+      {/* 社区推荐流：其他用户分享的网易云歌单（仅绑定账号可见） */}
+      <ShareFeed key={feedKey} platform="netease" accentClass="text-red-400" />
 
       {/* 网易云歌曲列表 */}
       <section>

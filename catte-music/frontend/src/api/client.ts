@@ -1,5 +1,5 @@
 import axios from 'axios'
-import type { MusicBrainzData, PredictionData, RadarData, ReviewData, SongListOut, SongOut, PreviewData, StyleRecommendResult, UserOut } from '../types'
+import type { MusicBrainzData, PredictionData, RadarData, ReviewData, SongListOut, SongOut, PreviewData, StyleRecommendResult, UserOut, ShareOut, LikeOut } from '../types'
 import { getToken, clearToken } from '../utils/auth'
 
 const client = axios.create({ baseURL: '/api' })
@@ -40,7 +40,6 @@ export const songsApi = {
     client.get<SongListOut>('/songs', { params }),
   clear: (platform: string) => client.delete<{ deleted: number; platform: string }>('/songs', { params: { platform } }),
   get: (id: number) => client.get<SongOut>(`/songs/${id}`),
-  favorite: (id: number) => client.post(`/songs/${id}/favorite`),
   getPreview: (id: number) => client.get<PreviewData>(`/songs/${id}/preview`),
   getReview: (id: number) => client.get<ReviewData>(`/songs/${id}/review`),
   getAlbumTracks: (songId: number) =>
@@ -80,9 +79,22 @@ export const neteaseApi = {
 
 export const recommendApi = {
   get: (limit = 6, params?: { platform?: string }) =>
-    client.get('/recommend', { params: { limit, ...params } }),
+    client.get<ShareOut[]>('/recommend', { params: { limit, ...params } }),
   getStyle: (limit = 6, params?: { platform?: string }) =>
     client.get<StyleRecommendResult>('/recommend/style', { params: { limit, ...params } }),
+}
+
+export const shareApi = {
+  create: (songId: number, comment?: string) =>
+    client.post<ShareOut>('/shares', { song_id: songId, comment }),
+  like: (shareId: number) => client.post<LikeOut>(`/shares/${shareId}/like`),
+  unlike: (shareId: number) => client.delete<LikeOut>(`/shares/${shareId}/like`),
+  status: (songId: number) =>
+    client.get<{ shared: boolean; share_id: number | null }>('/shares/status', { params: { song_id: songId } }),
+}
+
+export const usersApi = {
+  songs: (userId: number) => client.get<SongListOut>(`/users/${userId}/songs`),
 }
 
 export interface SuggestionOut {
@@ -146,8 +158,12 @@ export interface DashboardData {
   total_songs: number
   total_analyses: number
   total_visits: number
+  total_shares: number
+  total_likes: number
   visits_by_day: DashboardStat[]
   analysis_by_day: DashboardStat[]
+  shares_by_day: DashboardStat[]
+  likes_by_day: DashboardStat[]
   songs_by_platform: SongPlatformStat[]
   emotion_distribution: EmotionDistStat[]
   emotion_dimensions: EmotionDimensionStat[]

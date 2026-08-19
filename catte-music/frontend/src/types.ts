@@ -12,6 +12,7 @@ export interface SongOut {
   raw_meta?: Record<string, any> | null
   type?: string
   artist_bio?: string | null
+  user_id?: number | null
 }
 
 export interface SongListOut {
@@ -60,12 +61,6 @@ export interface PreviewData {
   preview_url: string
   title: string
   artist: string
-}
-
-export interface FavoriteOut {
-  user_id: number
-  song_id: number
-  created_at: string
 }
 
 // 多源共识反馈
@@ -155,4 +150,27 @@ export interface MusicBrainzItem {
 export interface MusicBrainzData {
   found: boolean
   items: MusicBrainzItem[]
+}
+
+// 用户分享与互动
+export interface ShareOut {
+  id: number
+  song: SongOut
+  sharer_id: number
+  sharer_username: string
+  platform: string
+  comment?: string | null
+  like_count: number
+  user_liked: boolean
+  created_at: string
+  // 分享歌曲的 AI 情绪名（最新预测），用于卡片徽章
+  emotion?: string | null
+  // 与当前用户情绪画像的相似度（推荐时计算），随机兜底项为 null
+  similarity?: number | null
+}
+
+export interface LikeOut {
+  share_id: number
+  liked: boolean
+  like_count: number
 }

@@ -1,7 +1,7 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { ChevronRight, Disc, ExternalLink, Heart, ListMusic, Music, Pause, Play, Podcast, Radar, RefreshCw, ShieldCheck, Sparkles } from 'lucide-react'
-import { emotionApi, neteaseApi, songsApi } from '../api/client'
+import { ChevronRight, Disc, ExternalLink, ListMusic, Music, Pause, Play, Podcast, Radar, RefreshCw, Share2, ShieldCheck, Sparkles } from 'lucide-react'
+import { authApi, emotionApi, neteaseApi, shareApi, songsApi } from '../api/client'
 import { loadMusicKit } from '../utils/musicKit'
 import type { FeedbackData, MusicBrainzData, PredictionData, RadarData, ReviewData, SongOut } from '../types'
 
@@ -61,11 +61,13 @@ export default function SongDetail() {
   const [radar, setRadar] = useState<RadarData | null>(null)
   const [prediction, setPrediction] = useState<PredictionData | null>(null)
   const [review, setReview] = useState<ReviewData | null>(null)
-  const [favLoading, setFavLoading] = useState(false)
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
   const [previewLoading, setPreviewLoading] = useState(false)
   const [playing, setPlaying] = useState(false)
   const [analyzing, setAnalyzing] = useState(false)
+  const [sharing, setSharing] = useState(false)
+  const [shared, setShared] = useState(false)
+  const [meId, setMeId] = useState<number | null>(null) // 当前登录用户 id（用于判断是否可分享）
   const [albumTracks, setAlbumTracks] = useState<AlbumTrack[]>([])
   const [albumLoading, setAlbumLoading] = useState(false)
   const [trackAudio, setTrackAudio] = useState<string | null>(null)
@@ -115,7 +117,14 @@ export default function SongDetail() {
     songsApi.getReview(songId).then(({ data }) => setReview(data)).catch(() => {})
     songsApi.getFeedback(songId).then(({ data }) => setFeedback(data)).catch(() => {})
     songsApi.getMusicBrainz(songId).then(({ data }) => setMusicBrainz(data)).catch(() => {})
+    // 恢复分享按钮状态：已分享过的内容刷新后仍显示「已分享」
+    shareApi.status(songId).then(({ data }) => setShared(data.shared)).catch(() => {})
   }, [id])
+
+  // 当前登录用户 id：判断歌曲是否属于自己（别人的内容不显示分享按钮）
+  useEffect(() => {
+    authApi.me().then(({ data }) => setMeId(data.id)).catch(() => {})
+  }, [])
 
   // MusicKit player event listeners
   useEffect(() => {
@@ -255,13 +264,22 @@ export default function SongDetail() {
     }
   }
 
-  const toggleFavorite = async () => {
+  // 分享：仅已有 AI 分析结果时可用（后端同样校验）
+  const handleShare = async () => {
     if (!song) return
-    setFavLoading(true)
+    setSharing(true)
     try {
-      await songsApi.favorite(song.id)
+      await shareApi.create(song.id)
+      setShared(true)
+    } catch (err: any) {
+      const detail = err?.response?.data?.detail || ''
+      if (detail.includes('已经分享过')) {
+        setShared(true)
+      } else {
+        alert(detail || '分享失败，请重试')
+      }
     } finally {
-      setFavLoading(false)
+      setSharing(false)
     }
   }
 
@@ -428,6 +446,21 @@ export default function SongDetail() {
               <Sparkles className="w-4 h-4 text-neon-purple" />
               {analyzing ? '分析中...' : prediction ? '重新AI分析' : 'AI分析'}
             </button>
+            {/* 分享：仅自己的内容且完成 AI 分析后可将专辑/歌单分享到社区推荐 */}
+            {prediction && song?.user_id === meId && (
+              <button
+                onClick={handleShare}
+                disabled={sharing || shared}
+                className={`inline-flex items-center gap-2 px-4 py-2 rounded-full text-sm border transition-all disabled:opacity-60 ${
+                  shared
+                    ? 'border-neon-cyan/40 text-neon-cyan'
+                    : 'border-neon-pink/30 hover:border-neon-pink/60'
+                }`}
+              >
+                <Share2 className={`w-4 h-4 ${shared ? 'text-neon-cyan' : 'text-neon-pink'}`} />
+                {sharing ? '分享中...' : shared ? '已分享' : '分享推荐'}
+              </button>
+            )}
           </div>
 
           {/* 基本信息（MusicBrainz 卡片风格，来源 Apple Music / 网易云音乐） */}
@@ -689,7 +722,7 @@ export default function SongDetail() {
             </div>
           )}
 
-          {/* 播放 + 收藏按钮 */}
+          {/* 播放按钮 */}
           <div className="flex flex-col items-center lg:items-start gap-3 mt-6">
             <div className="flex items-center gap-3">
               {song?.platform === 'netease' && !previewUrl && !useMusicKit ? (
@@ -726,13 +759,6 @@ export default function SongDetail() {
                   {previewLoading ? '获取中...' : '试听'}
                 </button>
               )}
-              <button
-                onClick={toggleFavorite}
-                disabled={favLoading}
-                className="glass px-4 py-3 rounded-xl hover:border-neon-pink/50 transition-all"
-              >
-                <Heart className="w-5 h-5 text-neon-pink" />
-              </button>
             </div>
 
             {/* 进度条 */}

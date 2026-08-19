@@ -11,6 +11,8 @@ import {
   Loader2,
   MessageSquare,
   Music2,
+  Share2,
+  Heart,
   ShieldCheck,
   Trash2,
   Users,
@@ -497,6 +499,8 @@ function DashboardPanel() {
     { label: '总访问量', value: data.total_visits, icon: Eye, color: 'text-neon-purple', bg: 'bg-neon-purple/10' },
     { label: '同步歌曲', value: data.total_songs, icon: Music2, color: 'text-neon-amber', bg: 'bg-neon-amber/10' },
     { label: 'AI 分析次数', value: data.total_analyses, icon: BrainCircuit, color: 'text-emerald-400', bg: 'bg-emerald-400/10' },
+    { label: '分享总数', value: data.total_shares, icon: Share2, color: 'text-sky-400', bg: 'bg-sky-400/10' },
+    { label: '点赞总数', value: data.total_likes, icon: Heart, color: 'text-rose-400', bg: 'bg-rose-400/10' },
   ]
 
   // 歌曲按平台分组：platform -> [{type, count}]
@@ -531,7 +535,7 @@ function DashboardPanel() {
   return (
     <div className="space-y-6">
       {/* 统计卡片 */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
         {cards.map(({ label, value, icon: Icon, color, bg }) => (
           <div key={label} className="glass rounded-2xl p-4 flex items-center gap-3">
             <div className={`p-2.5 rounded-xl ${bg}`}>
@@ -552,6 +556,16 @@ function DashboardPanel() {
         </ChartCard>
         <ChartCard title="AI 情绪分析（近 14 天）" subtitle={`累计 ${data.total_analyses} 次分析`}>
           <BarChart data={daily(data.analysis_by_day)} color="#a855f7" />
+        </ChartCard>
+      </div>
+
+      {/* 分享 & 点赞趋势 */}
+      <div className="grid lg:grid-cols-2 gap-4">
+        <ChartCard title="社区分享（近 14 天）" subtitle={`累计 ${data.total_shares} 次分享`}>
+          <BarChart data={daily(data.shares_by_day)} color="#38bdf8" />
+        </ChartCard>
+        <ChartCard title="点赞（近 14 天）" subtitle={`累计 ${data.total_likes} 个赞`}>
+          <BarChart data={daily(data.likes_by_day)} color="#fb7185" />
         </ChartCard>
       </div>
 

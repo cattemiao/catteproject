@@ -16,6 +16,7 @@ class SongOut(BaseModel):
     type: str = "song"
     artist_bio: str | None = None
     artwork_url: str | None = None
+    user_id: int | None = None  # 歌曲归属（用于判断是否可分享）
 
     model_config = {"from_attributes": True}
 
@@ -23,8 +24,3 @@ class SongOut(BaseModel):
 class SongListOut(BaseModel):
     total: int
     items: list[SongOut]
-
-
-class FavoriteOut(BaseModel):
-    song_id: int
-    favorited: bool

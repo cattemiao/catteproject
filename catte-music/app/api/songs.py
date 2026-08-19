@@ -7,7 +7,7 @@ from app.api.deps import get_current_user
 from app.database import get_db
 from app.models.song import Song
 from app.models.user import User, UserFavorite
-from app.schemas.song import FavoriteOut, SongListOut, SongOut
+from app.schemas.song import SongListOut, SongOut
 from app.services.apple_music.auth import API_BASE, get_developer_token
 from app.api.analyze import _search_preview
 
@@ -49,6 +49,7 @@ def _song_to_out(song: Song) -> SongOut:
         artist=song.artist,
         album=song.album,
         duration_ms=song.duration_ms,
+        user_id=getattr(song, "user_id", None),
         preview_url=preview_url,
         artwork_url=artwork_url,
         raw_meta=song.raw_meta,
@@ -95,8 +96,9 @@ async def clear_songs(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """清空当前用户指定平台导入的歌曲（含情绪/标签/预测/收藏等关联数据），便于重新同步。"""
+    """清空当前用户指定平台导入的歌曲（含情绪/标签/预测/收藏/分享等关联数据），便于重新同步。"""
     from app.models.prediction import AiPrediction
+    from app.models.share import Like, Share
     from app.models.song import SongEmotion, SongTag
     from app.models.user import UserFavorite
 
@@ -113,6 +115,13 @@ async def clear_songs(
         await db.execute(
             model.__table__.delete().where(model.song_id.in_(song_ids))
         )
+    # 删除歌曲相关的分享及其点赞
+    share_ids = (
+        await db.execute(select(Share.id).where(Share.song_id.in_(song_ids)))
+    ).scalars().all()
+    if share_ids:
+        await db.execute(Like.__table__.delete().where(Like.share_id.in_(share_ids)))
+        await db.execute(Share.__table__.delete().where(Share.id.in_(share_ids)))
     result = await db.execute(
         Song.__table__.delete().where(Song.id.in_(song_ids))
     )
@@ -301,26 +310,6 @@ async def get_album_tracks(
             "preview_url": previews[0]["url"] if previews else None,
         })
     return {"album_title": song.title, "album_artist": song.artist, "tracks": tracks}
-
-
-@router.post("/{song_id}/favorite", response_model=FavoriteOut)
-async def favorite_song(
-    song_id: int, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
-):
-    result = await db.execute(select(Song).where(Song.id == song_id))
-    if not result.scalar_one_or_none():
-        raise HTTPException(status_code=404, detail="歌曲不存在")
-    existing = await db.execute(
-        select(UserFavorite).where(
-            UserFavorite.user_id == user.id, UserFavorite.song_id == song_id
-        )
-    )
-    if existing.scalar_one_or_none():
-        return FavoriteOut(user_id=user.id, song_id=song_id, created_at="")
-    fav = UserFavorite(user_id=user.id, song_id=song_id)
-    db.add(fav)
-    await db.commit()
-    return FavoriteOut(user_id=user.id, song_id=song_id, created_at=str(fav.created_at))
 
 
 # ── 数据增强与情感分析 ──

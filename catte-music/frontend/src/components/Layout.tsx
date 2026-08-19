@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
-import { Home, Heart, LogOut, Music, Podcast, User } from 'lucide-react'
+import { Home, LogOut, Music, Podcast, User } from 'lucide-react'
 import logo from '../../logo.png'
 import SuggestionBox from './SuggestionBox'
 import { clearToken, getCurrentUsername } from '../utils/auth'
@@ -36,7 +36,6 @@ export default function Layout({ children }: { children: ReactNode }) {
 
   const navItems = [
     { to: '/', icon: Home, label: '首页' },
-    { to: '/favorites', icon: Heart, label: '收藏' },
   ]
 
   return (

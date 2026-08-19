@@ -20,7 +20,7 @@
 ┌──────────────────────────┴──────────────────────────────────┐
 │                 应用服务层 Application                       │
 │             FastAPI 后端 (统一 API 网关)                     │
-│   用户认证 · 歌曲管理 · 情绪查询 · 收藏 · 推荐接口            │
+│   用户认证 · 歌曲管理 · 情绪查询 · 分享互动 · 推荐接口        │
 └───────┬──────────────┬──────────────┬───────────────────────┘
         │              │              │
 ┌───────┴──────┐ ┌─────┴──────┐ ┌─────┴──────────────┐
@@ -86,7 +86,9 @@ catte-music/
 │   │   ├── auth.py              # 用户注册登录
 │   │   ├── songs.py             # 歌曲增删改查
 │   │   ├── emotions.py          # 情绪查询/雷达图数据
-│   │   ├── recommend.py         # AI 推荐
+│   │   ├── shares.py            # 分享与点赞
+│   │   ├── recommend.py         # 推荐列表(用户分享驱动)
+│   │   ├── users.py             # 用户主页歌单
 │   │   └── apple_music.py       # Apple Music 代理与听歌数据
 │   ├── services/                # 业务逻辑层
 │   │   ├── crawler/             # 爬虫服务
@@ -100,7 +102,8 @@ catte-music/
 │   │   ├── apple_music/         # Apple Music 集成
 │   │   │   ├── auth.py          # Token 生成与管理
 │   │   │   └── client.py        # API 调用封装
-│   │   └── recommend.py         # 推荐算法
+│   │   ├── share.py             # 分享与点赞服务
+│   │   └── recommend.py         # 推荐流水线(平台过滤+情绪相似度+点赞加权+随机兜底)
 │   └── utils/
 ├── frontend/                    # 前端工程
 │   └── src/
@@ -136,6 +139,11 @@ catte-music/
 - **客户端** `client.py`：封装 API 调用——搜索、获取最近播放、获取个人库、创建播放列表、为歌曲打分(±1)。
 - **前端配合**：前端用 MusicKit on the Web 发起用户授权，后端代理部分 API 调用以保护密钥。
 
+#### 分享与互动服务 `services/share.py` + `services/recommend.py`
+- **分享** `share.py`：创建分享（校验 AI 分析结果存在）、点赞/取消点赞（`likes` 联合唯一）。
+- **推荐流水线** `recommend.py`：`平台过滤 → 情绪相似度排序 → 点赞加权 → 随机兜底补足`，产出当前用户的推荐列表（完全来自其他用户的分享）。
+- **情绪相似度**：聚合当前用户 AI 分析结果的 7 维情绪向量，与各分享内容的向量计算余弦相似度。
+
 #### 应用服务 `api/`
 - 对前端暴露 RESTful 接口，组合调用下层领域服务。
 - 认证基于 JWT（用户注册登录后签发）。
@@ -156,6 +164,9 @@ users 1───* user_favorites *───1 songs
                     emotions 1     tags 1
                           |
                  emotion_dimensions (7维可视化)
+
+users 1───* shares *───1 songs        （分享：用户 → 专辑/播放列表）
+users 1───* likes *───1 shares        （点赞：用户对分享点赞，联合唯一）
 
 crawl_records (爬虫采集记录)
 ai_predictions (AI 预测结果)
@@ -217,11 +228,30 @@ ai_predictions (AI 预测结果)
 | tag_id | FK | |
 | source | varchar | 来源(crawler/user/ai) |
 
-#### user_favorites
+#### user_favorites（原"收藏"，演进为对分享点赞，见 likes）
 | 字段 | 类型 | 说明 |
 | --- | --- | --- |
 | user_id | FK | |
 | song_id | FK | |
+
+#### shares（分享/推荐记录）
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| id | PK | |
+| user_id | FK | 分享者 |
+| song_id | FK | 被分享的专辑/播放列表 |
+| platform | varchar | 来源平台 apple / netease |
+| comment | varchar | 分享语（可选） |
+| created_at | timestamp | |
+
+#### likes（点赞记录）
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| id | PK | |
+| share_id | FK | 被点赞的分享 |
+| user_id | FK | 点赞者 |
+| created_at | timestamp | |
+| UNIQUE(user_id, share_id) | | 每人每条分享只能点赞一次 |
 
 #### crawl_records
 | 字段 | 类型 | 说明 |
@@ -264,13 +294,16 @@ ai_predictions (AI 预测结果)
 | GET | `/api/songs/{id}/radar` | 7 维情绪雷达图数据 |
 | POST | `/api/songs/{id}/analyze` | 触发 AI 分析(异步) |
 
-### 收藏与推荐
+### 分享与推荐（用户互动）
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
-| GET | `/api/favorites` | 我的收藏 |
-| POST | `/api/favorites/{song_id}` | 收藏歌曲 |
-| DELETE | `/api/favorites/{song_id}` | 取消收藏 |
-| GET | `/api/recommend` | 基于情绪偏好的推荐 |
+| POST | `/api/shares` | 分享专辑/播放列表（需已有 AI 分析结果） |
+| GET | `/api/recommend` | 推荐列表（平台过滤 + 情绪相近优先 + 点赞加权 + 随机兜底补足） |
+| POST | `/api/shares/{id}/like` | 点赞分享 |
+| DELETE | `/api/shares/{id}/like` | 取消点赞 |
+| GET | `/api/users/{id}/songs` | 用户主页全部歌单（点击推荐卡片分享者进入） |
+
+> 原"收藏"功能演进为"点赞"互动：点赞作用于分享内容，点赞数越多，推荐优先级越高。
 
 ### Apple Music 数据
 | 方法 | 路径 | 说明 |
@@ -293,11 +326,14 @@ frontend/src/
 │   ├── SongDetail.tsx      # 歌曲详情(雷达图+粒子动画)
 │   ├── LyricsGallery.tsx   # AI 歌词配图画廊
 │   ├── EmotionReport.tsx   # 每周情绪听歌报告
-│   └── Favorites.tsx       # 我的收藏
+│   ├── Favorites.tsx       # 我的收藏
+│   ├── ShareFeed.tsx       # 推荐列表（其他用户的分享，情绪相近优先）
+│   └── UserProfile.tsx     # 用户主页（查看其全部歌单）
 ├── components/
 │   ├── EmotionRadar.tsx    # 情绪雷达图(p5.js)
 │   ├── ParticleBg.tsx      # 情绪粒子背景(p5.js)
 │   ├── MusicPlayer.tsx     # MusicKit 播放器封装
+│   ├── ShareCard.tsx       # 分享卡片（分享者信息 + 点赞按钮 + 情绪徽章）
 │   └── Layout.tsx          # 响应式布局容器
 ├── hooks/
 │   └── useMusicKit.ts      # MusicKit 授权与播放 Hook

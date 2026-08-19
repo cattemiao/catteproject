@@ -16,6 +16,7 @@ from app.api.deps import get_current_admin
 from app.database import get_db
 from app.models.pageview import PageView
 from app.models.prediction import AiPrediction
+from app.models.share import Like, Share
 from app.models.song import Song, SongEmotion, SongTag
 from app.models.suggestion import Suggestion
 from app.models.user import Emotion, User, UserFavorite
@@ -262,6 +263,8 @@ async def dashboard_stats(
         await db.execute(select(func.count()).select_from(AiPrediction))
     ).scalar() or 0
     total_visits = (await db.execute(select(func.count()).select_from(PageView))).scalar() or 0
+    total_shares = (await db.execute(select(func.count()).select_from(Share))).scalar() or 0
+    total_likes = (await db.execute(select(func.count()).select_from(Like))).scalar() or 0
 
     # 近 14 天访问量
     visit_rows = (
@@ -278,6 +281,24 @@ async def dashboard_stats(
             select(func.date(AiPrediction.predicted_at), func.count())
             .where(func.date(AiPrediction.predicted_at) >= start.strftime("%Y-%m-%d"))
             .group_by(func.date(AiPrediction.predicted_at))
+        )
+    ).all()
+
+    # 近 14 天分享量
+    share_rows = (
+        await db.execute(
+            select(func.date(Share.created_at), func.count())
+            .where(func.date(Share.created_at) >= start.strftime("%Y-%m-%d"))
+            .group_by(func.date(Share.created_at))
+        )
+    ).all()
+
+    # 近 14 天点赞量
+    like_rows = (
+        await db.execute(
+            select(func.date(Like.created_at), func.count())
+            .where(func.date(Like.created_at) >= start.strftime("%Y-%m-%d"))
+            .group_by(func.date(Like.created_at))
         )
     ).all()
 
@@ -345,8 +366,12 @@ async def dashboard_stats(
         "total_songs": total_songs,
         "total_analyses": total_analyses,
         "total_visits": total_visits,
+        "total_shares": total_shares,
+        "total_likes": total_likes,
         "visits_by_day": _fill_daily(start, visit_rows),
         "analysis_by_day": _fill_daily(start, analysis_rows),
+        "shares_by_day": _fill_daily(start, share_rows),
+        "likes_by_day": _fill_daily(start, like_rows),
         "songs_by_platform": songs_by_platform,
         "emotion_distribution": emotion_distribution,
         "emotion_dimensions": emotion_dimensions,

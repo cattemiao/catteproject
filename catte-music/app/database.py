@@ -135,6 +135,9 @@ def _apply_lightweight_migrations(sync_conn) -> None:
                     "layering", "soothing", "prosody"):
             if col not in pred_cols:
                 sync_conn.execute(text(f"ALTER TABLE ai_predictions ADD COLUMN {col} FLOAT"))
+        # v2 多标签：20 维情绪概率向量
+        if "emotion_probs" not in pred_cols:
+            sync_conn.execute(text("ALTER TABLE ai_predictions ADD COLUMN emotion_probs JSON"))
 
     # 补建 models 定义的缺失索引（SQLite 的 create_all 不会为已存在表补建索引）
     existing_tables = set(inspector.get_table_names())

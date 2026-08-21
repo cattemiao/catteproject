@@ -28,6 +28,8 @@ class AiPrediction(Base):
     layering: Mapped[float | None] = mapped_column(Float, nullable=True)
     soothing: Mapped[float | None] = mapped_column(Float, nullable=True)
     prosody: Mapped[float | None] = mapped_column(Float, nullable=True)
+    # v2 多标签：20 维情绪强度概率向量 {emotion_name: prob}；NULL = 旧数据（前端降级单标签）
+    emotion_probs: Mapped[dict | None] = mapped_column(JSONType, nullable=True)
     predicted_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

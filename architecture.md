@@ -128,11 +128,15 @@ catte-music/
 - **评论爬虫** `comments.py`：JS 逆向还原 `params`/`encSecKey` 加密逻辑（基于 AES/RSA）。
 - **输出**：写入 `data/raw/` 并入库 `crawl_records` 表。
 
-#### AI 引擎 `services/ai/`
-- **特征提取** `feature.py`：用 librosa 加载音频，提取节奏(BPM)、响度、频谱质心、MFCC、过零率等声学特征向量。
-- **分类器** `classifier.py`：加载 `data/models/emotion_model.pkl`，输入特征向量输出情绪标签与置信度。
-- **训练流程** `training.py`：从训练集提取特征 → 标注情绪标签 → 训练 scikit-learn 分类器 → joblib 导出模型。
-- **情绪标签体系**：甜蜜、浪漫、治愈、孤独、悲伤、深情、欢快、愤怒、宁静、热血 等 15 种。
+#### AI 引擎 `services/ai/`（情绪算法 v2，多标签表达）
+- **特征提取** `feature.py`：用 librosa 加载音频，提取节奏(BPM)、响度、频谱质心、过零率、MFCC(均值/std)、delta MFCC、Chroma、Tonnetz、频谱平坦度、能量熵、onset rate 等约 65 维声学特征向量（全 CPU 毫秒级）。
+- **多标签模型** `model.py`：OneVsRest + HistGradientBoosting ×20 个二分类器，每类接 Platt 校准（`CalibratedClassifierCV`），输出 **20 维情绪强度概率向量**；`predict` 返回 `(主情绪, top-N 次情绪, 20 维概率)`。
+- **弱标注管线** `labeling.py`：B 站评论 / Apple Music 编辑评论 / 网易云歌单标签 → 多标签弱标注 → 同曲多源加权投票仲裁 → 降噪；金标准（每情绪 10-30 首人工标注）权重 ×5。
+- **训练流程** `training_v2.py`：加载标注训练集 → 分层 5-fold 评估（宏 F1、每类 F1、Hamming loss）→ 与模板最近邻基线对比报告 → joblib 导出模型（`data/models/emotion_model_v2.pkl`）。
+- **兜底链**：模型缺失/加载失败 → 模板最近邻（现有 rule-based 逻辑保留）；某类样本 <50 → 该类混合模板打分；主情绪概率 <0.4 → 标记「情绪模糊」，前端弱表达。
+- **旧流水线** `classifier.py` / `training.py`（RF 15 类单标签）：已归档，保留代码供对比与回退。
+- **旧数据迁移** `migrate.py`：存量 `ai_predictions` 无 `emotion_probs` 的自动补齐（重新分析 → 模板近似伪概率 → 保持 NULL），幂等、断点续跑。
+- **情绪标签体系**：甜蜜、浪漫、治愈、悲伤、孤独、深情、欢快、愤怒、宁静、热血、忧郁、激昂、松弛、梦幻、震撼、舒缓、自由、空灵、狂野、迷幻 共 20 种。
 
 #### Apple Music 集成 `services/apple_music/`
 - **认证** `auth.py`：生成开发者 Token (JWT)，管理 Music User Token(OAuth 授权流程)。
@@ -142,7 +146,7 @@ catte-music/
 #### 分享与互动服务 `services/share.py` + `services/recommend.py`
 - **分享** `share.py`：创建分享（校验 AI 分析结果存在）、点赞/取消点赞（`likes` 联合唯一）。
 - **推荐流水线** `recommend.py`：`平台过滤 → 情绪相似度排序 → 点赞加权 → 随机兜底补足`，产出当前用户的推荐列表（完全来自其他用户的分享）。
-- **情绪相似度**：聚合当前用户 AI 分析结果的 7 维情绪向量，与各分享内容的向量计算余弦相似度。
+- **情绪相似度**：聚合当前用户 AI 分析结果的 20 维情绪分布向量（旧数据用模板近似伪概率补齐），与各分享内容的向量计算余弦相似度，并与 7 维声学余弦按 **0.7 / 0.3** 加权。
 
 #### 应用服务 `api/`
 - 对前端暴露 RESTful 接口，组合调用下层领域服务。
@@ -267,10 +271,12 @@ ai_predictions (AI 预测结果)
 | --- | --- | --- |
 | id | PK | |
 | song_id | FK | |
-| emotion_id | FK | |
-| confidence | float | |
-| feature_vector | jsonb | 特征向量 |
-| model_version | varchar | |
+| emotion_id | FK | 主情绪（v2 为多标签模型 argmax） |
+| confidence | float | 主情绪概率 |
+| feature_vector | jsonb | 特征向量（v2 为 65 维） |
+| model_version | varchar | `rule-based-v0.2` / `multilabel-v0.3` |
+| loudness/high_freq/rhythm/soundstage/layering/soothing/prosody | float | 真实音频映射的 7 维情绪指标（雷达图使用） |
+| emotion_probs | jsonb | **v2 新增**：20 维情绪强度概率向量 `{emotion_name: prob}`，NULL 表示旧数据（前端降级单标签） |
 | predicted_at | timestamp | |
 
 ---
@@ -290,15 +296,15 @@ ai_predictions (AI 预测结果)
 | --- | --- | --- |
 | GET | `/api/songs` | 歌曲列表(分页/搜索) |
 | GET | `/api/songs/{id}` | 歌曲详情 |
-| GET | `/api/songs/{id}/emotion` | 歌曲情绪预测结果 |
+| GET | `/api/songs/{id}/emotion` | 歌曲情绪预测结果（v2 多标签：`emotion/color/confidence` 主情绪 + `top_emotions` 次情绪 + `probs` 20 维分布，旧字段不破坏） |
 | GET | `/api/songs/{id}/radar` | 7 维情绪雷达图数据 |
-| POST | `/api/songs/{id}/analyze` | 触发 AI 分析(异步) |
+| POST | `/api/songs/{id}/analyze` | 触发 AI 分析(异步)，v2 走多标签模型（缺失则模板兜底） |
 
 ### 分享与推荐（用户互动）
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
 | POST | `/api/shares` | 分享专辑/播放列表（需已有 AI 分析结果） |
-| GET | `/api/recommend` | 推荐列表（平台过滤 + 情绪相近优先 + 点赞加权 + 随机兜底补足） |
+| GET | `/api/recommend` | 推荐列表（平台过滤 + 情绪分布相近优先(20 维×0.7 + 7 维声学×0.3) + 点赞加权 + 随机兜底补足） |
 | POST | `/api/shares/{id}/like` | 点赞分享 |
 | DELETE | `/api/shares/{id}/like` | 取消点赞 |
 | GET | `/api/users/{id}/songs` | 用户主页全部歌单（点击推荐卡片分享者进入） |
@@ -434,6 +440,42 @@ MUSIC_KIT_DEVELOPER_TOKEN=...
 - 系统级依赖：`brew install python@3.11 ffmpeg libsndfile postgresql uv`
 - 项目依赖：`uv init` / `uv venv --python 3.11` / `uv add ...` / `uv sync`
 - 详见 `requirement.md` 中"Python 环境管理方案"小节。
+
+---
+
+## 十、情绪算法 v2（多标签表达）
+
+> 详细方案见《[[Catte Music 情绪算法 v2 改进方案（2026-08-19）]]》。本节是落地后的实现快照。
+
+### 10.1 流水线
+
+```
+音频 → 特征增强 (~65 维) → 多标签分类器 (OneVsRest HistGBDT ×20, Platt 校准)
+  → 20 维概率向量
+  → 主情绪(argmax) + 次情绪(阈值 >0.35) + 全向量(推荐/展示)
+  → 模板距离仍作特征 & 兜底（模型缺失/类样本不足）
+```
+
+### 10.2 落地组件
+
+| 组件 | 职责 |
+|---|---|
+| `services/ai/feature.py` | 35 → ~65 维特征（+delta MFCC 均值/std、频谱平坦度、能量熵、onset rate、spectral rolloff） |
+| `services/ai/model.py` | 多标签模型加载与推理；缺失时抛异常由上层兜底模板 |
+| `services/ai/labeling.py` | 弱标注聚合（B 站评论/Apple 编辑评论/网易云标签）+ 多源仲裁 + 金标准导入（权重×5） |
+| `services/ai/training_v2.py` | 训练/评估：分层 5-fold、宏 F1、每类 F1、Hamming loss、模板基线对比 |
+| `services/ai/migrate.py` | 存量 `ai_predictions` 补齐 `emotion_probs`（重新分析/模板近似/NULL），幂等断点续跑 |
+| `api/analyze.py` | 推理切到模型 → 写入 `emotion_probs`；模型缺失 → 模板兜底（原逻辑保留） |
+| `api/emotions.py` | 返回 `{primary, top_emotions, probs(20维), radar(7维)}`，旧字段前向兼容 |
+| `services/recommend.py` | 情绪相似度 = 20 维分布余弦×0.7 + 7 维声学余弦×0.3 |
+| `models/prediction.py` | `AiPrediction` + `emotion_probs`（JSON），旧数据 NULL 时前端降级单标签 |
+
+### 10.3 降级链
+
+1. 模型存在 → 20 维概率 → 主情绪 + top-N；
+2. 模型缺失/加载失败 → 模板最近邻（rule-based，不崩）；
+3. 某类训练样本 <50 → 该类退回模板打分，模型输出与模板按类混合；
+4. 主情绪概率 < 0.4 → 标记「情绪模糊」，前端只展示 top-3 弱表达。
 
 ---
 

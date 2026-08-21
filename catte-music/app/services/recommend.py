@@ -6,6 +6,7 @@ import math
 import random
 from typing import Any
 
+import numpy as np
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
@@ -294,8 +295,8 @@ async def recommend_by_style(
 _DIMENSION_FIELDS = ("loudness", "high_freq", "rhythm", "soundstage", "layering", "soothing", "prosody")
 
 
-def _cosine_sim(a: list[float], b: list[float]) -> float:
-    """两个 7 维向量的余弦相似度。"""
+def _cosine_sim(a: list[float] | np.ndarray, b: list[float] | np.ndarray) -> float:
+    """两个同维向量的余弦相似度（兼容 7 维声学与 20 维情绪向量）。"""
     dot = sum(x * y for x, y in zip(a, b))
     na = math.sqrt(sum(x * x for x in a))
     nb = math.sqrt(sum(x * x for x in b))
@@ -304,13 +305,40 @@ def _cosine_sim(a: list[float], b: list[float]) -> float:
     return dot / (na * nb)
 
 
-async def _user_avg_vector(db: AsyncSession, user_id: int) -> list[float] | None:
-    """聚合当前用户所有 AI 分析结果的平均 7 维情绪向量；无有效预测返回 None。"""
+def _emotion_vector(pred: AiPrediction) -> np.ndarray | None:
+    """pred → 20 维情绪分布向量（按 EMOTION_LABELS 顺序）。
+
+    优先取 v2 的 emotion_probs；旧数据（NULL）用存储的特征向量重建
+    模板伪概率补齐，保证推荐相似度对新旧数据一致。
+    """
+    from app.services.ai import model as ai_model
+    from app.services.ai.feature import template_probs
+
+    if pred.emotion_probs:
+        return ai_model.probs_vector(pred.emotion_probs)
+    fv = pred.feature_vector
+    if not fv:
+        return None
+    try:
+        keys = sorted(fv, key=lambda k: int(k))
+        vec = [float(fv[k]) for k in keys]
+        return ai_model.probs_vector(template_probs(np.array(vec)))
+    except (ValueError, TypeError):
+        return None
+
+
+async def _user_avg_profiles(
+    db: AsyncSession, user_id: int
+) -> tuple[np.ndarray | None, list[float] | None]:
+    """聚合用户所有 AI 分析结果的平均 20 维情绪向量 + 平均 7 维声学向量。
+
+    每首歌只取最新一条预测；均无有效数据返回 (None, None)。
+    """
     song_ids = (
         await db.execute(select(Song.id).where(Song.user_id == user_id))
     ).scalars().all()
     if not song_ids:
-        return None
+        return None, None
     preds = (
         await db.execute(
             select(AiPrediction)
@@ -320,29 +348,39 @@ async def _user_avg_vector(db: AsyncSession, user_id: int) -> list[float] | None
     ).scalars().all()
 
     seen: set[int] = set()
-    vectors: list[list[float]] = []
+    emotion_vecs: list[np.ndarray] = []
+    acoustic_vecs: list[list[float]] = []
     for p in preds:  # 每首歌只取最新一条预测
         if p.song_id in seen:
             continue
         seen.add(p.song_id)
-        vec = [getattr(p, f) for f in _DIMENSION_FIELDS]
-        if all(v is not None for v in vec):
-            vectors.append(vec)
+        ev = _emotion_vector(p)
+        if ev is not None:
+            emotion_vecs.append(ev)
+        ac = [getattr(p, f) for f in _DIMENSION_FIELDS]
+        if all(v is not None for v in ac):
+            acoustic_vecs.append(ac)
 
-    if not vectors:
-        return None
-    return [sum(col) / len(col) for col in zip(*vectors)]
+    if not emotion_vecs and not acoustic_vecs:
+        return None, None
+    avg_emotion = None
+    if emotion_vecs:
+        avg_emotion = np.mean(np.stack(emotion_vecs), axis=0)
+    avg_acoustic = None
+    if acoustic_vecs:
+        avg_acoustic = [sum(col) / len(col) for col in zip(*acoustic_vecs)]
+    return avg_emotion, avg_acoustic
 
 
-async def _latest_predictions(
+async def _latest_profiles(
     db: AsyncSession, song_ids: list[int]
-) -> dict[int, tuple[list[float] | None, str | None]]:
-    """批量取多首歌最新 AI 预测的 7 维向量与情绪名。
+) -> dict[int, tuple[np.ndarray | None, list[float] | None, str | None]]:
+    """批量取多首歌最新 AI 预测的 (20 维情绪向量, 7 维声学向量, 情绪名)。
 
     Returns:
-        {song_id: (vector | None, emotion_name | None)}
+        {song_id: (emotion_vec | None, acoustic_vec | None, emotion_name | None)}
     """
-    result: dict[int, tuple[list[float] | None, str | None]] = {}
+    result: dict[int, tuple[np.ndarray | None, list[float] | None, str | None]] = {}
     if not song_ids:
         return result
     preds = (
@@ -356,8 +394,9 @@ async def _latest_predictions(
     for p, emotion_name in preds:  # 按 id 倒序，首个即最新
         if p.song_id in result:
             continue
-        vec = [getattr(p, f) for f in _DIMENSION_FIELDS]
-        result[p.song_id] = (vec if all(v is not None for v in vec) else None, emotion_name)
+        ac = [getattr(p, f) for f in _DIMENSION_FIELDS]
+        acoustic = ac if all(v is not None for v in ac) else None
+        result[p.song_id] = (_emotion_vector(p), acoustic, emotion_name)
     return result
 
 
@@ -432,15 +471,25 @@ async def recommend_shares(
         ).scalars().all()
     )
 
-    # 2. 情绪相似度
-    avg_vec = await _user_avg_vector(db, user.id)
-    pred_map = await _latest_predictions(db, [r[1].id for r in rows])
+    # 2. 情绪相似度：20 维情绪分布余弦 ×0.7 + 7 维声学余弦 ×0.3
+    avg_emotion, avg_acoustic = await _user_avg_profiles(db, user.id)
+    pred_map = await _latest_profiles(db, [r[1].id for r in rows])
 
     scored: list[tuple[float, dict[str, Any]]] = []
     for share, song, sharer, like_count in rows:
         like_count = like_count or 0
-        vec, emotion_name = pred_map.get(song.id, (None, None))
-        sim = _cosine_sim(avg_vec, vec) if avg_vec and vec else 0.0
+        emo_vec, ac_vec, emotion_name = pred_map.get(song.id, (None, None, None))
+        emotion_sim = (
+            _cosine_sim(avg_emotion, emo_vec)
+            if avg_emotion is not None and emo_vec is not None
+            else 0.0
+        )
+        acoustic_sim = (
+            _cosine_sim(avg_acoustic, ac_vec)
+            if avg_acoustic is not None and ac_vec is not None
+            else 0.0
+        )
+        sim = 0.7 * emotion_sim + 0.3 * acoustic_sim
         # 3. 点赞加权：相似度 + 点赞带来的加分（封顶避免刷票）
         score = sim + min(like_count, 50) * 0.02
         scored.append(
@@ -453,7 +502,11 @@ async def recommend_shares(
                     "like_count": like_count,
                     "user_liked": share.id in liked_ids,
                     "emotion": emotion_name,
-                    "similarity": round(sim, 4) if (avg_vec and vec) else None,
+                    "similarity": (
+                        round(sim, 4)
+                        if (avg_emotion is not None or avg_acoustic is not None)
+                        else None
+                    ),
                 },
             )
         )

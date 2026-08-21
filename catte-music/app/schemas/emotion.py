@@ -26,6 +26,14 @@ class RadarOut(BaseModel):
     emotion: str
     color: str
     dimensions: RadarDimension
+    # 主情绪的标准模板维度画像，用于与歌曲实测维度叠加对比
+    template: RadarDimension | None = None
+
+
+class EmotionProbOut(BaseModel):
+    name: str
+    color: str
+    prob: float
 
 
 class PredictionOut(BaseModel):
@@ -33,3 +41,8 @@ class PredictionOut(BaseModel):
     emotion: str
     color: str
     confidence: float
+    # v2 多标签字段（旧数据为 None，前端降级单标签展示）
+    top_emotions: list[EmotionProbOut] | None = None
+    probs: dict[str, float] | None = None
+    fuzzy: bool | None = None
+    model_version: str | None = None

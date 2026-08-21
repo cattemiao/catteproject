@@ -16,6 +16,8 @@ from app.models.prediction import AiPrediction
 from app.models.song import Song, SongEmotion
 from app.models.user import Emotion, User
 from app.schemas.emotion import PredictionOut
+from app.services.ai import model as ai_model
+from app.services.ai.feature import extract_features, map_to_dimensions, template_probs
 from app.services.apple_music.auth import API_BASE, get_developer_token
 
 router = APIRouter(prefix="/api", tags=["AI 分析"])
@@ -59,125 +61,42 @@ async def _download_preview(url: str, dest: Path) -> None:
     logger.info("预览音频已下载: %d bytes -> %s", len(resp.content), dest)
 
 
-def _map_features_to_dimensions(features: "np.ndarray") -> "np.ndarray":  # noqa: F821
-    """35 维音频特征 → 7 维情绪指标映射（响度/高频/节奏/声场/层次/舒缓/韵律）。
+def _classify_by_profile(features) -> dict:
+    """模板最近邻兜底（模型缺失/加载失败时）。
 
-    特征布局：tempo, rmse, centroid, zcr, mfcc[13], chroma[12], tonnetz[6]
+    Returns:
+        与 `model.predict` 同结构的 dict（probs 为模板伪概率）。
     """
-    import numpy as np
+    from app.services.ai.feature import template_distances
 
-    tempo, rmse, centroid, zcr = features[0], features[1], features[2], features[3]
-    mfcc = features[4:17]       # 13 维
-    chroma = features[17:29]    # 12 维
-    tonnetz = features[29:35]   # 6 维
-
-    # ── 7 维映射（chroma/tonnetz 增强）──
-    # 系数按真实特征分布标定：典型歌曲各维度落于 30-85，极端才接近 0/100，
-    # 避免 loudness/layering 等维度普遍顶格、soothing 普遍压零
-
-    loudness = min(100, max(0, rmse * 240))
-
-    # 高频：频谱质心为主 + chroma 高半音响应
-    high_freq = min(100, max(0,
-        (centroid / 5000) * 100 +
-        float(np.mean(chroma[6:])) * 50 - 10
-    ))
-
-    rhythm = min(100, max(0, tempo * 0.5))
-
-    # 声场：MFCC 中高阶标准差 + chroma 标准差（反映和声空间广度）
-    soundstage = min(100, max(0,
-        30 + float(np.std(mfcc[4:10])) * 5 +
-        float(np.std(chroma)) * 30
-    ))
-
-    # 层次：MFCC 全阶标准差 + tonnetz 标准差（反映调性复杂度）
-    layering = min(100, max(0,
-        float(np.std(mfcc)) * 1.2 +
-        float(np.std(tonnetz)) * 40
-    ))
-
-    # 舒缓：反比于响度和高频，正比于 chroma 低频能量
-    soothing = min(100, max(0,
-        85 - rmse * 150 -
-        (centroid / 5000) * 20 +
-        float(np.mean(chroma[:4])) * 25
-    ))
-
-    # 韵律：节奏变化 + MFCC 动态 + tonnetz 调性变化
-    prosody = min(100, max(0,
-        25 + float(np.std(mfcc[2:8])) * 4 +
-        (zcr * 40) +
-        float(np.std(tonnetz)) * 30
-    ))
-
-    return np.array([loudness, high_freq, rhythm, soundstage, layering, soothing, prosody])
+    distances = template_distances(features)
+    best = min(distances, key=distances.get)
+    confidence = max(0.0, min(1.0, 1.0 - distances[best] / 150.0))
+    probs = template_probs(features)
+    return {
+        "primary": best,
+        "confidence": confidence,
+        "top_emotions": [
+            {"name": name, "color": ai_model.EMOTION_COLORS.get(name, "#a855f7"), "prob": round(p, 4)}
+            for name, p in sorted(probs.items(), key=lambda x: -x[1])[:3]
+        ],
+        "probs": {name: round(p, 4) for name, p in probs.items()},
+        "fuzzy": False,
+    }
 
 
-def _map_features_to_dimensions_legacy(features: "np.ndarray") -> "np.ndarray":  # noqa: F821
-    """35 维音频特征 → 7 维情绪指标（旧饱和空间，仅供情绪分类器使用）。
+def _classify(features) -> tuple[dict, str]:
+    """v2 推理：多标签模型优先，缺失/异常 → 模板最近邻兜底。
 
-    情绪模板按旧空间标定，保持分类结果稳定；展示用的维度请用
-    `_map_features_to_dimensions`（新标定空间，幅度更分散）。
+    Returns:
+        (result, model_version)
     """
-    import numpy as np
-
-    tempo, rmse, centroid, zcr = features[0], features[1], features[2], features[3]
-    mfcc = features[4:17]
-    chroma = features[17:29]
-    tonnetz = features[29:35]
-
-    loudness = min(100, max(0, rmse * 1000))
-    high_freq = min(100, max(0,
-        (centroid / 5000) * 55 +
-        float(np.mean(mfcc[:4])) * 5 +
-        float(np.mean(chroma[6:])) * 35
-    ))
-    rhythm = min(100, max(0, tempo * 0.8))
-    soundstage = min(100, max(0,
-        45 + float(np.std(mfcc[4:10])) * 3 +
-        float(np.std(chroma)) * 20
-    ))
-    layering = min(100, max(0,
-        35 + float(np.std(mfcc)) * 4 +
-        float(np.std(tonnetz)) * 15
-    ))
-    soothing = min(100, max(0,
-        100 - rmse * 750 -
-        (centroid / 5000) * 28 +
-        float(np.mean(chroma[:4])) * 25
-    ))
-    prosody = min(100, max(0,
-        25 + float(np.std(mfcc[2:8])) * 3.5 +
-        (zcr * 75) +
-        float(np.std(tonnetz)) * 12
-    ))
-    return np.array([loudness, high_freq, rhythm, soundstage, layering, soothing, prosody])
-
-
-def _classify_by_profile(
-    features: "np.ndarray",  # noqa: F821
-) -> tuple[str, float]:
-    """基于 7 维情绪模板的最近邻分类器（使用旧饱和空间，与模板匹配）。"""
-    import numpy as np
-    from app.services.ai.seed_emotions import EMOTION_PROFILES
-
-    audio_dim = _map_features_to_dimensions_legacy(features)
-
-    best_emotion = "治愈"
-    best_dist = float("inf")
-    for name, _, dims in EMOTION_PROFILES:
-        template = np.array([
-            dims["loudness"], dims["high_freq"], dims["rhythm"],
-            dims["soundstage"], dims["layering"], dims["soothing"], dims["prosody"],
-        ])
-        dist = np.linalg.norm(audio_dim - template)
-        if dist < best_dist:
-            best_dist = dist
-            best_emotion = name
-
-    confidence = max(0.0, min(1.0, 1.0 - best_dist / 150.0))
-    return best_emotion, confidence
+    if ai_model.is_model_available():
+        try:
+            return ai_model.predict(features), ai_model.MODEL_VERSION
+        except Exception as exc:
+            logger.warning("多标签模型推理失败，回退模板最近邻: %s", exc)
+    return _classify_by_profile(features), "rule-based-v0.2"
 
 
 @router.post("/songs/{song_id}/analyze", response_model=PredictionOut)
@@ -191,8 +110,6 @@ async def analyze_song(
     试听音频来源：网易云歌曲优先取网易云官方试听（需绑定网易云账号），
     获取失败时回退 Apple Music catalog 预览；Apple Music 歌曲直接搜预览。
     """
-    from app.services.ai.feature import extract_features
-
     result = await db.execute(select(Song).where(Song.id == song_id))
     song = result.scalar_one_or_none()
     if not song:
@@ -277,7 +194,9 @@ async def analyze_song(
             detail=f"「{song.title}」的试听音频无法解析，无法进行情绪分析",
         )
 
-    emotion_name, confidence = _classify_by_profile(features)
+    result, model_version = _classify(features)
+    emotion_name = result["primary"]
+    confidence = result["confidence"]
 
     emotion_result = await db.execute(
         select(Emotion).where(Emotion.name == emotion_name)
@@ -286,11 +205,12 @@ async def analyze_song(
     color = emotion.color
 
     feature_dict = {str(i): float(features[i]) for i in range(len(features))}
-    dims = _map_features_to_dimensions(features)
+    dims = map_to_dimensions(features)
     db.add(AiPrediction(
         song_id=song.id, emotion_id=emotion.id,
         confidence=confidence, feature_vector=feature_dict,
-        model_version="rule-based-v0.2",
+        emotion_probs=result["probs"],
+        model_version=model_version,
         loudness=float(dims[0]), high_freq=float(dims[1]), rhythm=float(dims[2]),
         soundstage=float(dims[3]), layering=float(dims[4]), soothing=float(dims[5]),
         prosody=float(dims[6]),
@@ -310,4 +230,21 @@ async def analyze_song(
     await db.commit()
     logger.info("歌曲 #%d (%s) 分析完成: %s (%.2f%%)", song.id, song.title, emotion_name, confidence * 100)
 
-    return PredictionOut(song_id=song.id, emotion=emotion_name, color=color, confidence=confidence)
+    # top_emotions 与 GET /emotions/songs/{id}/emotion 保持一致：
+    # 恒取概率 top-5（不足 5 时全量），保证点击分析后徽章立即显示齐全
+    probs = result["probs"]
+    ranked = sorted(probs.items(), key=lambda x: -x[1])[:5]
+    top_emotions = [
+        {
+            "name": name,
+            "color": color if name == emotion_name else ai_model.EMOTION_COLORS.get(name, "#a855f7"),
+            "prob": round(float(prob), 4),
+        }
+        for name, prob in ranked
+    ]
+
+    return PredictionOut(
+        song_id=song.id, emotion=emotion_name, color=color, confidence=confidence,
+        top_emotions=top_emotions, probs=probs,
+        fuzzy=result["fuzzy"], model_version=model_version,
+    )

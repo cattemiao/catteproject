@@ -432,10 +432,27 @@ export default function SongDetail() {
                 <Sparkles className="w-4 h-4" style={{ color: emotionColor }} />
                 <span className="font-medium" style={{ color: emotionColor }}>
                   {prediction.emotion}
+                  {prediction.fuzzy && (
+                    <span className="ml-1.5 text-xs text-amber-400">· 情绪模糊</span>
+                  )}
                 </span>
                 <span className="text-slate-500 text-sm">
                   · 置信度 {(prediction.confidence * 100).toFixed(0)}%
                 </span>
+                {/* v2 多标签：次情绪徽章 */}
+                {prediction.top_emotions && prediction.top_emotions.length > 1 && (
+                  <span className="flex items-center gap-1.5">
+                    {prediction.top_emotions.slice(1).map((t) => (
+                      <span
+                        key={t.name}
+                        className="text-xs px-2 py-0.5 rounded-full border border-slate-500/40 text-slate-300"
+                        style={{ background: `${t.color}18` }}
+                      >
+                        {t.name} {(t.prob * 100).toFixed(0)}%
+                      </span>
+                    ))}
+                  </span>
+                )}
               </div>
             )}
             <button

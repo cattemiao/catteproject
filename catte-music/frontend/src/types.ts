@@ -32,6 +32,11 @@ export interface PredictionData {
   emotion: string
   color: string
   confidence: number
+  // v2 多标签（旧数据为 undefined，降级单标签展示）
+  top_emotions?: { name: string; color: string; prob: number }[]
+  probs?: Record<string, number>
+  fuzzy?: boolean
+  model_version?: string
 }
 
 export interface RadarDimension {
@@ -50,6 +55,8 @@ export interface RadarData {
   emotion: string
   color: string
   dimensions: RadarDimension
+  // 主情绪的标准模板画像，用于与歌曲实测维度叠加对比
+  template?: RadarDimension | null
 }
 
 export interface ReviewData {

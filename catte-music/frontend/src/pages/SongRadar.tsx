@@ -1,10 +1,49 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { ArrowLeft, Disc, Music, Radar, Sparkles } from 'lucide-react'
 import { emotionApi, songsApi } from '../api/client'
 import ParticleBg from '../components/ParticleBg'
 import EmotionRadar from '../components/EmotionRadar'
 import type { PredictionData, RadarData, RadarDimension, SongOut } from '../types'
+
+// 单行自适应缩放容器：内容超宽时整体等比缩小并始终靠左，保证 badge 保持单行不换行
+function FitBadge({ children }: { children: ReactNode }) {
+  const innerRef = useRef<HTMLDivElement>(null)
+  const outerRef = useRef<HTMLDivElement>(null)
+  const [scale, setScale] = useState(1)
+  const [height, setHeight] = useState<number | undefined>(undefined)
+  useEffect(() => {
+    const inner = innerRef.current
+    const outer = outerRef.current
+    if (!inner || !outer) return
+    const fit = () => {
+      const avail = outer.clientWidth
+      const need = inner.scrollWidth
+      const s = avail > 0 && need > avail ? Math.min(1, avail / need) : 1
+      setScale(s)
+      setHeight(inner.offsetHeight * s)
+    }
+    fit()
+    const ro = new ResizeObserver(fit)
+    ro.observe(outer)
+    window.addEventListener('resize', fit)
+    return () => {
+      ro.disconnect()
+      window.removeEventListener('resize', fit)
+    }
+  }, [])
+  return (
+    <div ref={outerRef} className="w-full overflow-hidden" style={{ height: height ?? undefined }}>
+      <div
+        ref={innerRef}
+        className="inline-flex w-max"
+        style={{ transform: `scale(${scale})`, transformOrigin: 'left center' }}
+      >
+        {children}
+      </div>
+    </div>
+  )
+}
 
 // 每个维度的三档详细解析（低/中/高），在音频特征基础上给出听觉层面的解读
 const DIMENSION_INFO: {
@@ -222,7 +261,8 @@ export default function SongRadar() {
 
         {/* 歌曲信息头 */}
         {song && (
-          <div className="flex items-center gap-4 mb-8">
+          <>
+            <div className="flex items-center gap-4 mb-8">
             <div
               className="w-16 h-16 rounded-xl overflow-hidden flex items-center justify-center flex-shrink-0"
               style={{
@@ -244,29 +284,30 @@ export default function SongRadar() {
                 {song.title}
               </h1>
               <p className="text-slate-400 text-sm truncate">{song.artist}</p>
-              <div className="flex items-center gap-2 mt-1 flex-wrap">
-                {prediction ? (
-                  // 与歌曲详情页一致的完整情绪展示：主情绪 + 置信度 + 次情绪徽章
-                  <div
-                    className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full"
-                    style={{ background: `${color}20`, border: `1px solid ${color}50` }}
-                  >
-                    <Sparkles className="w-3.5 h-3.5" style={{ color }} />
-                    <span className="text-sm font-medium" style={{ color }}>
+            </div>
+          </div>
+          <div className="mt-3 mb-6">
+            {prediction ? (
+              (() => {
+                // 与歌曲详情页一致的完整情绪展示：主情绪 + 置信度 + 次情绪徽章
+                const inner = (
+                  <>
+                    <Sparkles className="w-4 h-4" style={{ color }} />
+                    <span className="font-medium whitespace-nowrap" style={{ color }}>
                       {prediction.emotion}
-                      {prediction.fuzzy && (
-                        <span className="ml-1.5 text-xs text-amber-400">· 情绪模糊</span>
-                      )}
                     </span>
-                    <span className="text-xs text-slate-500">
+                    {prediction.fuzzy && (
+                      <span className="text-xs text-amber-400 whitespace-nowrap">· 情绪模糊</span>
+                    )}
+                    <span className="text-slate-500 text-sm whitespace-nowrap">
                       · 置信度 {(prediction.confidence * 100).toFixed(0)}%
                     </span>
                     {prediction.top_emotions && prediction.top_emotions.length > 1 && (
-                      <span className="flex items-center gap-1.5">
+                      <span className="flex flex-wrap items-center gap-1.5">
                         {prediction.top_emotions.slice(1).map((t) => (
                           <span
                             key={t.name}
-                            className="text-xs px-2 py-0.5 rounded-full border border-slate-500/40 text-slate-300"
+                            className="text-xs px-2 py-0.5 rounded-full border border-slate-500/40 text-slate-300 whitespace-nowrap"
                             style={{ background: `${t.color}18` }}
                           >
                             {t.name} {(t.prob * 100).toFixed(0)}%
@@ -274,19 +315,44 @@ export default function SongRadar() {
                         ))}
                       </span>
                     )}
-                  </div>
-                ) : (
-                  <span
-                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium"
-                    style={{ background: `${color}20`, border: `1px solid ${color}50`, color }}
-                  >
-                    <Sparkles className="w-3 h-3" />
-                    {emotion || '未分析'}
-                  </span>
-                )}
-              </div>
-            </div>
+                  </>
+                )
+                return (
+                  <>
+                    {/* 手机：与专辑页一致的折行方案 */}
+                    <div
+                      className="sm:hidden inline-flex flex-wrap items-center gap-x-2 gap-y-1 px-4 py-2 rounded-full"
+                      style={{ background: `${color}20`, border: `1px solid ${color}50` }}
+                    >
+                      {inner}
+                    </div>
+                    {/* PC：单行整体缩放 */}
+                    <div className="hidden sm:block">
+                      <FitBadge>
+                        <div
+                          className="inline-flex items-center gap-2 px-4 py-2 rounded-full whitespace-nowrap"
+                          style={{ background: `${color}20`, border: `1px solid ${color}50` }}
+                        >
+                          {inner}
+                        </div>
+                      </FitBadge>
+                    </div>
+                  </>
+                )
+              })()
+            ) : (
+              <FitBadge>
+                <span
+                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium whitespace-nowrap"
+                  style={{ background: `${color}20`, border: `1px solid ${color}50`, color }}
+                >
+                  <Sparkles className="w-3 h-3" />
+                  {emotion || '未分析'}
+                </span>
+              </FitBadge>
+            )}
           </div>
+          </>
         )}
 
         {loading ? (

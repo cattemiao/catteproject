@@ -1,5 +1,6 @@
 """认证路由：注册、登录、Apple Music 授权。"""
 from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -16,6 +17,11 @@ from app.utils.security import (
 )
 
 router = APIRouter(prefix="/api/auth", tags=["认证"])
+
+
+class ChangeUserPasswordIn(BaseModel):
+    old_password: str = Field(..., min_length=1, max_length=128)
+    new_password: str = Field(..., min_length=6, max_length=128)
 
 
 @router.post("/register", response_model=UserOut, status_code=status.HTTP_201_CREATED)
@@ -64,6 +70,25 @@ async def me(user: User = Depends(get_current_user)):
         has_apple_music=bool(user.apple_music_token),
         has_netease=bool(user.netease_cookie),
     )
+
+
+@router.post("/change-password")
+async def change_password(
+    payload: ChangeUserPasswordIn,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """当前登录用户修改自己的密码。"""
+    if user.id == 0:
+        # admin 是虚拟账号（不落库），请走管理后台的密码修改
+        raise HTTPException(status_code=400, detail="管理员请到管理后台修改密码")
+
+    if not verify_password(payload.old_password, user.password_hash):
+        raise HTTPException(status_code=400, detail="原密码不正确")
+
+    user.password_hash = hash_password(payload.new_password)
+    await db.commit()
+    return {"ok": True}
 
 
 @router.get("/apple-music/config")

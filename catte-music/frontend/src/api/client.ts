@@ -29,6 +29,8 @@ export const authApi = {
   login: (username: string, password: string) =>
     client.post<{ access_token: string; is_admin?: boolean }>('/auth/login', { username, password }),
   me: () => client.get<UserOut>('/auth/me'),
+  changePassword: (oldPassword: string, newPassword: string) =>
+    client.post('/auth/change-password', { old_password: oldPassword, new_password: newPassword }),
   appleMusicConfig: () =>
     client.get<{ developer_token: string; app_name: string; build: string }>('/auth/apple-music/config'),
   appleMusicCallback: (musicUserToken: string) =>
@@ -93,8 +95,22 @@ export const shareApi = {
     client.get<{ shared: boolean; share_id: number | null }>('/shares/status', { params: { song_id: songId } }),
 }
 
+export interface UserStatsOut {
+  apple_songs: number
+  apple_albums: number
+  netease_songs: number
+  netease_albums: number
+  shares: number
+  analyses: number
+  emotion_distribution: { name: string; color: string; count: number }[]
+  emotion_dimensions: { dimension: string; avg: number; count: number }[]
+  top_emotion: string | null
+  top_genres: [string, number][]
+}
+
 export const usersApi = {
   songs: (userId: number) => client.get<SongListOut>(`/users/${userId}/songs`),
+  meStats: () => client.get<UserStatsOut>('/users/me/stats'),
 }
 
 export interface SuggestionOut {

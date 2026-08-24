@@ -12,6 +12,7 @@ const NeteaseHome = lazy(() => import('./pages/NeteaseHome'))
 const SongDetail = lazy(() => import('./pages/SongDetail'))
 const SongRadar = lazy(() => import('./pages/SongRadar'))
 const UserProfile = lazy(() => import('./pages/UserProfile'))
+const UserSettings = lazy(() => import('./pages/UserSettings'))
 const Admin = lazy(() => import('./pages/Admin'))
 
 function PageLoader() {
@@ -37,6 +38,7 @@ function ProtectedLayout() {
           <Route path="/song/:id" element={<SongDetail />} />
           <Route path="/song/:id/radar" element={<SongRadar />} />
           <Route path="/users/:id" element={<UserProfile />} />
+          <Route path="/settings" element={<UserSettings />} />
           <Route path="/admin" element={<Admin />} />
         </Routes>
       </Suspense>

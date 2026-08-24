@@ -1,6 +1,6 @@
-import { useEffect, useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
-import { Home, LogOut, Music, Podcast, User } from 'lucide-react'
+import { ChevronDown, Home, LogOut, Music, Podcast, Settings, User } from 'lucide-react'
 import logo from '../../logo.png'
 import SuggestionBox from './SuggestionBox'
 import { clearToken, getCurrentUsername } from '../utils/auth'
@@ -10,6 +10,20 @@ export default function Layout({ children }: { children: ReactNode }) {
   const navigate = useNavigate()
   const location = useLocation()
   const username = getCurrentUsername()
+  // 用户菜单（设置 / 退出）展开状态
+  const [menuOpen, setMenuOpen] = useState(false)
+  const menuRef = useRef<HTMLDivElement>(null)
+
+  // 点击菜单外部时关闭
+  useEffect(() => {
+    const onClick = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setMenuOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', onClick)
+    return () => document.removeEventListener('mousedown', onClick)
+  }, [])
 
   // 专辑详情页路径为 /song/:id，需按歌曲平台高亮对应导航
   const [songPlatform, setSongPlatform] = useState<string | null>(null)
@@ -87,18 +101,41 @@ export default function Layout({ children }: { children: ReactNode }) {
           ))}
           <SuggestionBox />
           {username && (
-            <div className="hidden md:flex items-center gap-1.5 px-3 py-2 text-sm text-slate-300 ml-1 border-l border-white/10">
-              {/* 仅桌面端（≥768px）显示用户名，移动端隐藏 */}
-              <User className="w-4 h-4 text-neon-cyan flex-shrink-0" />
-              <span className="max-w-[120px] truncate">{username}</span>
+            <div ref={menuRef} className="relative ml-1 border-l border-white/10">
+              <button
+                onClick={() => setMenuOpen((o) => !o)}
+                className="flex items-center gap-1.5 px-3 py-2 text-sm text-slate-300 hover:text-white transition-all"
+              >
+                <User className="w-4 h-4 text-neon-cyan flex-shrink-0" />
+                <span className="max-w-[120px] truncate">{username}</span>
+                <ChevronDown className={`w-3.5 h-3.5 text-slate-500 transition-transform ${menuOpen ? 'rotate-180' : ''}`} />
+              </button>
+              {menuOpen && (
+                <div className="absolute right-0 top-full mt-1 w-44 glass rounded-xl p-1.5 shadow-xl z-50">
+                  <button
+                    onClick={() => {
+                      setMenuOpen(false)
+                      navigate('/settings')
+                    }}
+                    className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-slate-300 hover:text-white hover:bg-white/5 transition-all"
+                  >
+                    <Settings className="w-4 h-4 text-neon-cyan" />
+                    设置
+                  </button>
+                  <button
+                    onClick={() => {
+                      setMenuOpen(false)
+                      logout()
+                    }}
+                    className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-slate-400 hover:text-red-400 hover:bg-red-500/10 transition-all"
+                  >
+                    <LogOut className="w-4 h-4" />
+                    退出
+                  </button>
+                </div>
+              )}
             </div>
           )}
-          <button
-            onClick={logout}
-            className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm text-slate-400 hover:text-red-400 hover:bg-red-500/10 transition-all"
-          >
-            <LogOut className="w-4 h-4" />
-          </button>
         </nav>
       </header>
 

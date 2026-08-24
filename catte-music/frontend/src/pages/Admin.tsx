@@ -11,16 +11,18 @@ import {
   Loader2,
   MessageSquare,
   Music2,
+  Save,
+  Settings,
   Share2,
   Heart,
   ShieldCheck,
   Trash2,
   Users,
 } from 'lucide-react'
-import { adminApi, type AdminSuggestionOut, type AdminUserOut, type DashboardData } from '../api/client'
+import { adminApi, type AdminSettingsOut, type AdminSuggestionOut, type AdminUserOut, type DashboardData } from '../api/client'
 import { getCurrentUsername } from '../utils/auth'
 
-type Tab = 'dashboard' | 'users' | 'suggestions'
+type Tab = 'dashboard' | 'users' | 'suggestions' | 'settings'
 
 const platformBadge = (hasApple: boolean, hasNetease: boolean) => {
   const items: string[] = []
@@ -96,9 +98,28 @@ export default function Admin() {
           <MessageSquare className="w-4 h-4 text-neon-cyan" />
           意见管理
         </button>
+        <button
+          onClick={() => setTab('settings')}
+          className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium transition-all whitespace-nowrap ${
+            tab === 'settings'
+              ? 'bg-neon-purple/20 text-white shadow-[0_0_12px_rgba(168,85,247,0.3)]'
+              : 'text-slate-400 hover:text-white'
+          }`}
+        >
+          <Settings className="w-4 h-4 text-neon-cyan" />
+          系统设置
+        </button>
       </div>
 
-      {tab === 'dashboard' ? <DashboardPanel /> : tab === 'users' ? <UserPanel /> : <SuggestionPanel />}
+      {tab === 'dashboard' ? (
+        <DashboardPanel />
+      ) : tab === 'users' ? (
+        <UserPanel />
+      ) : tab === 'suggestions' ? (
+        <SuggestionPanel />
+      ) : (
+        <SettingsPanel />
+      )}
     </div>
   )
 }
@@ -426,6 +447,187 @@ function SuggestionPanel() {
         </Modal>
       )}
     </>
+  )
+}
+
+/* ───────────────────────── 系统设置 ───────────────────────── */
+
+function SettingsPanel() {
+  const [settings, setSettings] = useState<AdminSettingsOut | null>(null)
+  const [threshold, setThreshold] = useState('')
+  const [error, setError] = useState('')
+  const [notice, setNotice] = useState('')
+  const [saving, setSaving] = useState(false)
+  // 密码修改表单
+  const [oldPassword, setOldPassword] = useState('')
+  const [newPassword, setNewPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
+  const [pwBusy, setPwBusy] = useState(false)
+  const [pwMsg, setPwMsg] = useState('')
+
+  const load = useCallback(async () => {
+    setError('')
+    try {
+      const { data } = await adminApi.settings()
+      setSettings(data)
+      setThreshold(String(data.auto_analyze_threshold))
+    } catch {
+      setError('加载设置失败')
+    }
+  }, [])
+
+  useEffect(() => {
+    load()
+  }, [load])
+
+  const saveThreshold = async () => {
+    const v = Number(threshold)
+    if (!Number.isInteger(v) || v < 0) {
+      setError('请输入非负整数作为阈值')
+      return
+    }
+    setError('')
+    setNotice('')
+    setSaving(true)
+    try {
+      const { data } = await adminApi.updateSettings(v)
+      setSettings(data)
+      setThreshold(String(data.auto_analyze_threshold))
+      setNotice('自动分析阈值已保存')
+    } catch {
+      setError('保存阈值失败')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const changePassword = async () => {
+    setError('')
+    setNotice('')
+    setPwMsg('')
+    if (!oldPassword) {
+      setError('请输入原密码')
+      return
+    }
+    if (newPassword.length < 6) {
+      setError('新密码至少 6 位')
+      return
+    }
+    if (newPassword !== confirmPassword) {
+      setError('两次输入的新密码不一致')
+      return
+    }
+    setPwBusy(true)
+    try {
+      await adminApi.changePassword(oldPassword, newPassword)
+      setPwMsg('密码修改成功，下次登录请使用新密码')
+      setOldPassword('')
+      setNewPassword('')
+      setConfirmPassword('')
+    } catch (err: any) {
+      setError(err?.response?.data?.detail || '密码修改失败')
+    } finally {
+      setPwBusy(false)
+    }
+  }
+
+  if (!settings) {
+    return <p className="text-slate-400 text-sm py-8 text-center">加载中…</p>
+  }
+
+  return (
+    <div className="space-y-6">
+      {error && <p className="text-red-400 text-sm">{error}</p>}
+      {notice && <p className="text-emerald-400 text-sm">{notice}</p>}
+      {pwMsg && <p className="text-emerald-400 text-sm">{pwMsg}</p>}
+
+      {/* 自动 AI 分析设置 */}
+      <div className="glass rounded-2xl p-5">
+        <h3 className="font-display font-bold text-white flex items-center gap-2">
+          <BrainCircuit className="w-5 h-5 text-neon-cyan" />
+          自动 AI 分析
+        </h3>
+        <p className="text-xs text-slate-400 mb-4 mt-1">
+          当系统当前活跃用户数低于阈值时，后台自动为尚未分析的专辑/歌单生成情绪数据（含主情绪、置信度与雷达图画像）。
+        </p>
+        <div className="flex items-center gap-6 flex-wrap mb-5 text-sm">
+          <div className="flex items-center gap-2">
+            <Activity className="w-4 h-4 text-slate-500" />
+            <span className="text-slate-400">当前活跃用户</span>
+            <span className="font-semibold text-white">{settings.active_users}</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <Music2 className="w-4 h-4 text-slate-500" />
+            <span className="text-slate-400">待分析专辑/歌单</span>
+            <span className="font-semibold text-white">{settings.pending_albums}</span>
+          </div>
+        </div>
+        <div className="flex flex-col gap-3 max-w-md">
+          <div>
+            <label className="block text-xs text-slate-400 mb-1">活跃用户数阈值</label>
+            <input
+              type="number"
+              min={0}
+              value={threshold}
+              onChange={(e) => setThreshold(e.target.value)}
+              className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white placeholder:text-slate-500 focus:outline-none focus:border-neon-purple/60"
+            />
+          </div>
+          <button
+            onClick={saveThreshold}
+            disabled={saving}
+            className="flex w-32 justify-center items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium bg-neon-purple/25 text-white hover:bg-neon-purple/35 shadow-[0_0_15px_rgba(168,85,247,0.3)] transition-all disabled:opacity-50"
+          >
+            {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+            保存阈值
+          </button>
+        </div>
+        <p className="text-[11px] text-slate-500 mt-2">活跃用户数低于该值时触发自动分析</p>
+      </div>
+
+      {/* admin 密码修改 */}
+      <div className="glass rounded-2xl p-5">
+        <h3 className="font-display font-bold text-white flex items-center gap-2">
+          <KeyRound className="w-5 h-5 text-neon-cyan" />
+          修改管理员密码
+        </h3>
+        <p className="text-xs text-slate-400 mb-4 mt-1">
+          初始密码来自 .env 的 ADMIN_PASSWORD
+          {settings.admin_password_set ? '，当前已使用自定义密码。' : '，修改后将持久化保存。'}
+        </p>
+        <div className="flex flex-col gap-3 max-w-md">
+          <input
+            type="password"
+            value={oldPassword}
+            onChange={(e) => setOldPassword(e.target.value)}
+            placeholder="原密码"
+            className="px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white placeholder:text-slate-500 focus:outline-none focus:border-neon-purple/60"
+          />
+          <input
+            type="password"
+            value={newPassword}
+            onChange={(e) => setNewPassword(e.target.value)}
+            placeholder="新密码（至少 6 位）"
+            className="px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white placeholder:text-slate-500 focus:outline-none focus:border-neon-purple/60"
+          />
+          <input
+            type="password"
+            value={confirmPassword}
+            onChange={(e) => setConfirmPassword(e.target.value)}
+            placeholder="确认新密码"
+            className="px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white placeholder:text-slate-500 focus:outline-none focus:border-neon-purple/60"
+          />
+        </div>
+        <button
+          onClick={changePassword}
+          disabled={pwBusy}
+          className="mt-4 flex w-32 justify-center items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium bg-neon-purple/25 text-white hover:bg-neon-purple/35 shadow-[0_0_15px_rgba(168,85,247,0.3)] transition-all disabled:opacity-50"
+        >
+          {pwBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <ShieldCheck className="w-4 h-4" />}
+          修改密码
+        </button>
+      </div>
+    </div>
   )
 }
 

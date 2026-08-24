@@ -37,9 +37,12 @@ async def register(data: UserRegister, db: AsyncSession = Depends(get_db)):
 
 @router.post("/login", response_model=Token)
 async def login(data: UserLogin, db: AsyncSession = Depends(get_db)):
-    # 管理员：密码由 .env 的 ADMIN_PASSWORD 设置，不落库
+    # 管理员：初始密码由 .env 的 ADMIN_PASSWORD 提供；
+    # 若已在设置页修改过密码，则以数据库中的哈希为准
     if data.username == settings.admin_username:
-        if not settings.admin_password or data.password != settings.admin_password:
+        from app.services.admin_settings import verify_admin_password
+
+        if not await verify_admin_password(db, data.password):
             raise HTTPException(status_code=401, detail="用户名或密码错误")
         token = create_access_token(data.username)
         return Token(access_token=token, is_admin=True)

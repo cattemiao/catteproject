@@ -1,7 +1,8 @@
 """FastAPI 应用入口：挂载路由、启动建表、CORS。"""
+import asyncio
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api import admin, analyze, apple_music, auth, emotions, netease, recommend, shares, songs, stats, suggestions, users
@@ -17,7 +18,18 @@ async def lifespan(app: FastAPI):
     from app.services.ai.seed_emotions import seed
 
     await seed()
-    yield
+    # 后台自动 AI 分析任务：低负载时扫描未分析的专辑/歌单生成情绪数据
+    from app.services.ai.auto_analyze import auto_analyze_loop
+
+    analyzer_task = asyncio.create_task(auto_analyze_loop())
+    try:
+        yield
+    finally:
+        analyzer_task.cancel()
+        try:
+            await analyzer_task
+        except asyncio.CancelledError:
+            pass
 
 
 app = FastAPI(
@@ -44,6 +56,20 @@ app.add_middleware(
 @app.get("/api/health")
 def health():
     return {"status": "ok"}
+
+
+@app.middleware("http")
+async def track_active_users(request: Request, call_next):
+    """记录最近活跃的登录用户（供后台低负载自动 AI 分析判断）。"""
+    auth = request.headers.get("Authorization", "")
+    if auth.startswith("Bearer "):
+        from app.services.active_users import active_users
+        from app.utils.security import decode_access_token
+
+        username = decode_access_token(auth[7:])
+        if username:
+            active_users.touch(username)
+    return await call_next(request)
 
 
 # 挂载路由

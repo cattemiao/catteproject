@@ -169,6 +169,13 @@ export interface DashboardData {
   emotion_dimensions: EmotionDimensionStat[]
 }
 
+export interface AdminSettingsOut {
+  auto_analyze_threshold: number
+  active_users: number
+  pending_albums: number
+  admin_password_set: boolean
+}
+
 export const adminApi = {
   users: () => client.get<AdminUserOut[]>('/admin/users'),
   deleteUser: (userId: number) => client.delete(`/admin/users/${userId}`),
@@ -180,6 +187,11 @@ export const adminApi = {
   deleteSuggestion: (suggestionId: number) =>
     client.delete(`/admin/suggestions/${suggestionId}`),
   dashboard: () => client.get<DashboardData>('/admin/stats/dashboard'),
+  settings: () => client.get<AdminSettingsOut>('/admin/settings'),
+  updateSettings: (autoAnalyzeThreshold: number) =>
+    client.put<AdminSettingsOut>('/admin/settings', { auto_analyze_threshold: autoAnalyzeThreshold }),
+  changePassword: (oldPassword: string, newPassword: string) =>
+    client.post('/admin/settings/password', { old_password: oldPassword, new_password: newPassword }),
 }
 
 export const statsApi = {

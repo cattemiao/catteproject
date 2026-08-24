@@ -376,3 +376,101 @@ async def dashboard_stats(
         "emotion_distribution": emotion_distribution,
         "emotion_dimensions": emotion_dimensions,
     }
+
+
+# ───────────────────────── 系统设置 ─────────────────────────
+
+
+async def _pending_albums_count(db: AsyncSession) -> int:
+    """尚未进行 AI 分析的专辑/歌单数量。"""
+    return (
+        await db.execute(
+            select(func.count())
+            .select_from(Song)
+            .outerjoin(AiPrediction, AiPrediction.song_id == Song.id)
+            .where(Song.type.in_(("albums", "playlists")), AiPrediction.id.is_(None))
+        )
+    ).scalar() or 0
+
+
+class SettingsOut(BaseModel):
+    auto_analyze_threshold: int
+    active_users: int
+    pending_albums: int
+    admin_password_set: bool
+
+
+@router.get("/settings", response_model=SettingsOut)
+async def get_settings(
+    _admin: User = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """读取系统设置（自动分析阈值、当前活跃用户数、待分析专辑数、admin 密码状态）。"""
+    from app.services.active_users import active_users
+    from app.services.admin_settings import (
+        get_admin_password_hash,
+        get_auto_analyze_threshold,
+    )
+
+    return SettingsOut(
+        auto_analyze_threshold=await get_auto_analyze_threshold(db),
+        active_users=active_users.active_count(),
+        pending_albums=await _pending_albums_count(db),
+        admin_password_set=bool(await get_admin_password_hash(db)),
+    )
+
+
+class SettingsUpdateIn(BaseModel):
+    auto_analyze_threshold: int = Field(..., ge=0, le=1000)
+
+
+@router.put("/settings", response_model=SettingsOut)
+async def update_settings(
+    payload: SettingsUpdateIn,
+    _admin: User = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """更新自动 AI 分析的活跃用户阈值。"""
+    from app.services.active_users import active_users
+    from app.services.admin_settings import (
+        KEY_AUTO_ANALYZE_THRESHOLD,
+        get_admin_password_hash,
+        get_auto_analyze_threshold,
+        set_setting_value,
+    )
+
+    await set_setting_value(
+        db, KEY_AUTO_ANALYZE_THRESHOLD, str(payload.auto_analyze_threshold)
+    )
+    await db.commit()
+    return SettingsOut(
+        auto_analyze_threshold=await get_auto_analyze_threshold(db),
+        active_users=active_users.active_count(),
+        pending_albums=await _pending_albums_count(db),
+        admin_password_set=bool(await get_admin_password_hash(db)),
+    )
+
+
+class ChangePasswordIn(BaseModel):
+    old_password: str = Field(..., min_length=1, max_length=128)
+    new_password: str = Field(..., min_length=6, max_length=128)
+
+
+@router.post("/settings/password")
+async def change_admin_password(
+    payload: ChangePasswordIn,
+    _admin: User = Depends(get_current_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """修改 admin 账号登录密码。
+
+    初始密码来自 .env 的 ADMIN_PASSWORD，修改后持久化保存到数据库。
+    """
+    from app.services.admin_settings import set_admin_password, verify_admin_password
+
+    if not await verify_admin_password(db, payload.old_password):
+        raise HTTPException(status_code=400, detail="原密码不正确")
+
+    await set_admin_password(db, payload.new_password)
+    await db.commit()
+    return {"ok": True}

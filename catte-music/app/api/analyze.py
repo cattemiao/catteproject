@@ -115,16 +115,28 @@ async def analyze_song(
     if not song:
         raise HTTPException(status_code=404, detail="歌曲不存在")
 
+    cookies = None
+    if getattr(user, "netease_cookie", None):
+        from app.services.netease import client as netease_client
+
+        cookies = netease_client.parse_cookie_str(user.netease_cookie)
+    return await analyze_song_core(song, db, cookies)
+
+
+async def analyze_song_core(
+    song: Song,
+    db: AsyncSession,
+    cookies: dict[str, str] | None = None,
+) -> PredictionOut:
+    """AI 情绪分析核心流程（路由与后台自动分析共用）。
+
+    试听音频来源：网易云优先官方试听（后台任务无登录 cookie 时回退外链播放器），
+    失败再回退 Apple Music catalog 预览。
+    """
     # 收集候选试听源，按顺序依次尝试
     preview_urls: list[str] = []
     if getattr(song, "platform", "apple") == "netease":
         from app.services.netease import client as netease_client
-
-        cookies = (
-            netease_client.parse_cookie_str(user.netease_cookie)
-            if user.netease_cookie
-            else None
-        )
 
         song_type = getattr(song, "type", "song") or "song"
         if song_type in ("albums", "playlists"):
